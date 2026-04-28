@@ -21,6 +21,14 @@ export async function DiscordRequest(endpoint, options) {
   if (!res.ok) {
     const data = await res.json();
     console.log(res.status);
+    
+    // Log specific error details for debugging
+    if (data.code === 50001) {
+      console.error('Missing Access error - bot may not have permission to access this channel or user');
+    } else if (data.code === 50013) {
+      console.error('Missing Permissions error - bot lacks necessary permissions for this action');
+    }
+    
     throw new Error(JSON.stringify(data));
   }
   // return original response

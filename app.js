@@ -73,7 +73,19 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       }
 
       // Get channel ID for conversation context
-      const channelId = data.channel_id;
+      // The channel_id is available at the root level of the interaction payload for slash commands
+      const channelId = req.body.channel_id;
+      
+      if (!channelId) {
+        console.error('Error: Could not determine channel ID from interaction payload');
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: 'Error: Could not determine channel context. Please try again in a server channel.',
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
       
       try {
         console.log('Processing chat message...');
@@ -109,25 +121,38 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
               
               console.log('Successfully edited message with AI response');
               
-              // Send additional chunks as follow-up messages if needed
+              // Send additional chunks as follow-up messages using webhook (more reliable)
               for (let i = 1; i < chunks.length; i++) {
-                if (channelId) {
-                  try {
-                    await DiscordRequest(`channels/${channelId}/messages`, {
-                      method: 'POST',
-                      body: {
-                        content: chunks[i],
-                        allowed_mentions: {
-                          parse: ['users', 'roles']
-                        }
+                try {
+                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages`, {
+                    method: 'POST',
+                    body: {
+                      content: chunks[i],
+                      allowed_mentions: {
+                        parse: ['users', 'roles']
                       }
-                    });
-                    console.log(`Sent follow-up message chunk ${i + 1}/${chunks.length}`);
-                  } catch (postError) {
-                    console.error(`Failed to send follow-up message chunk ${i + 1}:`, postError);
+                    }
+                  });
+                  console.log(`Sent follow-up message chunk ${i + 1}/${chunks.length}`);
+                } catch (postError) {
+                  console.error(`Failed to send follow-up message chunk ${i + 1}:`, postError);
+                  // If webhook fails, try channel API as fallback
+                  if (channelId) {
+                    try {
+                      await DiscordRequest(`channels/${channelId}/messages`, {
+                        method: 'POST',
+                        body: {
+                          content: chunks[i],
+                          allowed_mentions: {
+                            parse: ['users', 'roles']
+                          }
+                        }
+                      });
+                      console.log(`Sent follow-up message chunk ${i + 1}/${chunks.length} via channel API`);
+                    } catch (channelError) {
+                      console.error(`Failed to send follow-up message chunk ${i + 1} via channel API:`, channelError);
+                    }
                   }
-                } else {
-                  console.error(`Cannot send follow-up chunk ${i + 1}: channelId is undefined`);
                 }
               }
             } catch (editError) {
@@ -174,24 +199,38 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 }
               });
               
-              // Send additional chunks as follow-up messages if needed
+              // Send additional chunks as follow-up messages using webhook (more reliable)
               for (let i = 1; i < chunks.length; i++) {
-                if (channelId) {
-                  try {
-                    await DiscordRequest(`channels/${channelId}/messages`, {
-                      method: 'POST',
-                      body: {
-                        content: chunks[i],
-                        allowed_mentions: {
-                          parse: ['users', 'roles']
-                        }
+                try {
+                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages`, {
+                    method: 'POST',
+                    body: {
+                      content: chunks[i],
+                      allowed_mentions: {
+                        parse: ['users', 'roles']
                       }
-                    });
-                  } catch (postError) {
-                    console.error(`Failed to send follow-up error message chunk ${i + 1}:`, postError);
+                    }
+                  });
+                  console.log(`Sent follow-up error message chunk ${i + 1}/${chunks.length}`);
+                } catch (postError) {
+                  console.error(`Failed to send follow-up error message chunk ${i + 1}:`, postError);
+                  // If webhook fails, try channel API as fallback
+                  if (channelId) {
+                    try {
+                      await DiscordRequest(`channels/${channelId}/messages`, {
+                        method: 'POST',
+                        body: {
+                          content: chunks[i],
+                          allowed_mentions: {
+                            parse: ['users', 'roles']
+                          }
+                        }
+                      });
+                      console.log(`Sent follow-up error message chunk ${i + 1}/${chunks.length} via channel API`);
+                    } catch (channelError) {
+                      console.error(`Failed to send follow-up error message chunk ${i + 1} via channel API:`, channelError);
+                    }
                   }
-                } else {
-                  console.error(`Cannot send follow-up error chunk ${i + 1}: channelId is undefined`);
                 }
               }
             } catch (editError) {
