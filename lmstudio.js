@@ -3,6 +3,7 @@ import 'dotenv/config';
 const LM_STUDIO_API_URL = process.env.LM_STUDIO_API_URL || 'http://localhost:1234/v1/chat/completions';
 const LM_STUDIO_API_KEY = process.env.LM_STUDIO_API_KEY || '';
 const DEFAULT_MODEL = process.env.DEFAULT_MODEL || '';
+const LM_STUDIO_TIMEOUT = parseInt(process.env.LM_STUDIO_TIMEOUT, 10) || 25000;
 
 // Request queue to handle concurrent requests
 const requestQueue = [];
@@ -62,7 +63,7 @@ async function getLMStudioResponseInternal(message, conversationHistory = []) {
     }
 
     // Add timeout to prevent hanging requests
-    timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+    timeoutId = setTimeout(() => controller.abort(), LM_STUDIO_TIMEOUT);
 
     const response = await fetch(LM_STUDIO_API_URL, {
       method: 'POST',
