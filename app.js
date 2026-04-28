@@ -67,8 +67,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: 'Please provide a message to send to the AI.',
-            flags: InteractionResponseFlags.EPHEMERAL
+            content: 'Please provide a message to send to the AI.'
           }
         });
       }
@@ -84,7 +83,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         res.send({
           type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            flags: InteractionResponseFlags.EPHEMERAL,
             content: 'Thinking... ⏳'
           }
         });
@@ -133,8 +131,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
               await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
                 method: 'PATCH',
                 body: {
-                  content: `Sorry, I encountered an error: ${error.message}`,
-                  flags: InteractionResponseFlags.EPHEMERAL
+                  content: `Sorry, I encountered an error: ${error.message}`
                 }
               });
             } catch (editError) {
@@ -149,8 +146,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: `Sorry, I encountered an unexpected error: ${error.message}`,
-            flags: InteractionResponseFlags.EPHEMERAL
+            content: `Sorry, I encountered an unexpected error: ${error.message}`
           }
         });
       }
