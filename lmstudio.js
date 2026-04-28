@@ -35,6 +35,9 @@ async function processNextInQueue() {
  * Internal implementation of LM Studio API call (without queue logic)
  */
 async function getLMStudioResponseInternal(message, conversationHistory = []) {
+  const controller = new AbortController();
+  let timeoutId;
+
   try {
     // Build the messages array with conversation history and current message
     const messages = [
@@ -59,47 +62,39 @@ async function getLMStudioResponseInternal(message, conversationHistory = []) {
     }
 
     // Add timeout to prevent hanging requests
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+    timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
 
-    try {
-      const response = await fetch(LM_STUDIO_API_URL, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(requestBody),
-        signal: controller.signal
-      });
+    const response = await fetch(LM_STUDIO_API_URL, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
 
-      clearTimeout(timeoutId);
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('LM Studio API Error:', errorData);
+      throw new Error(`LM Studio API error: ${response.statusText}`);
+    }
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('LM Studio API Error:', errorData);
-        throw new Error(`LM Studio API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      // Extract the assistant's message from the response
-      if (data.choices && data.choices.length > 0) {
-        return data.choices[0].message.content;
-      } else {
-        console.error('Unexpected LM Studio response format:', data);
-        throw new Error('Invalid response format from LM Studio');
-      }
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        console.error('LM Studio request timed out');
-        throw new Error('Request to AI model timed out. Please try a shorter prompt or check your model configuration.');
-      }
-      console.error('Error getting response from LM Studio:', error);
-      throw error;
+    const data = await response.json();
+    
+    // Extract the assistant's message from the response
+    if (data.choices && data.choices.length > 0) {
+      return data.choices[0].message.content;
+    } else {
+      console.error('Unexpected LM Studio response format:', data);
+      throw new Error('Invalid response format from LM Studio');
     }
   } catch (error) {
-    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      console.error('LM Studio request timed out');
+      throw new Error('Request to AI model timed out. Please try a shorter prompt or check your model configuration.');
+    }
     console.error('Error getting response from LM Studio:', error);
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
