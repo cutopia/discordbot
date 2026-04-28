@@ -86,6 +86,24 @@ async function getLMStudioResponseInternal(message, conversationHistory = []) {
 }
 
 /**
+ * Send a request to LM Studio API for chat completions with queue management
+ * @param {string} message - The user's message
+ * @param {Array<{role: string, content: string}>} conversationHistory - Array of previous messages in the conversation
+ * @returns {Promise<string>} - The AI's response
+ */
+export async function getLMStudioResponse(message, conversationHistory = []) {
+  return new Promise((resolve, reject) => {
+    // Add request to queue
+    requestQueue.push({ resolve, reject, message, conversationHistory });
+    
+    // Start processing if not already doing so
+    if (!isProcessing) {
+      processNextInQueue();
+    }
+  });
+}
+
+/**
  * Get the list of available models from LM Studio
  * @returns {Promise<Array>} - Array of model names
  */
