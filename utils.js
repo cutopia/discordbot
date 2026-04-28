@@ -31,8 +31,22 @@ export async function InstallGlobalCommands(appId, commands) {
   try {
     // This is calling the bulk overwrite endpoint: https://discord.com/developers/docs/interactions/application-commands#bulk-overwrite-global-application-commands
     await DiscordRequest(endpoint, { method: 'PUT', body: commands });
+    console.log('✅ Global commands installed successfully');
   } catch (err) {
-    console.error(err);
+    console.error('❌ Error installing global commands:', err);
+  }
+}
+
+export async function InstallGuildCommands(appId, guildId, commands) {
+  // API endpoint to overwrite guild-specific commands
+  const endpoint = `applications/${appId}/guilds/${guildId}/commands`;
+
+  try {
+    // This is calling the bulk overwrite endpoint for guild commands
+    await DiscordRequest(endpoint, { method: 'PUT', body: commands });
+    console.log('✅ Guild commands installed successfully');
+  } catch (err) {
+    console.error('❌ Error installing guild commands:', err);
   }
 }
 

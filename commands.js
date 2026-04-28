@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { InstallGlobalCommands } from './utils.js';
+import { InstallGlobalCommands, InstallGuildCommands } from './utils.js';
 
 const commands = [
   {
@@ -26,6 +26,7 @@ const commands = [
 
 // Get application ID from environment or use placeholder
 const appId = process.env.DISCORD_APP_ID;
+const guildId = process.env.GUILD_ID; // Optional: Add your server ID
 
 if (!appId) {
   console.error('DISCORD_APP_ID is not set in .env file');
@@ -33,4 +34,13 @@ if (!appId) {
   process.exit(1);
 }
 
+// Install global commands (for user account)
 InstallGlobalCommands(appId, commands);
+
+// If guild ID is provided, also install server-specific commands
+if (guildId) {
+  InstallGuildCommands(appId, guildId, commands);
+  console.log('Commands installed for both global and specific guild');
+} else {
+  console.log('Commands installed globally. Add GUILD_ID to .env for server-specific installation.');
+}
