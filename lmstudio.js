@@ -58,28 +58,46 @@ async function getLMStudioResponseInternal(message, conversationHistory = []) {
       headers['Authorization'] = `Bearer ${LM_STUDIO_API_KEY}`;
     }
 
-    const response = await fetch(LM_STUDIO_API_URL, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify(requestBody)
-    });
+    // Add timeout to prevent hanging requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('LM Studio API Error:', errorData);
-      throw new Error(`LM Studio API error: ${response.statusText}`);
-    }
+    try {
+      const response = await fetch(LM_STUDIO_API_URL, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
+      });
 
-    const data = await response.json();
-    
-    // Extract the assistant's message from the response
-    if (data.choices && data.choices.length > 0) {
-      return data.choices[0].message.content;
-    } else {
-      console.error('Unexpected LM Studio response format:', data);
-      throw new Error('Invalid response format from LM Studio');
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('LM Studio API Error:', errorData);
+        throw new Error(`LM Studio API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      // Extract the assistant's message from the response
+      if (data.choices && data.choices.length > 0) {
+        return data.choices[0].message.content;
+      } else {
+        console.error('Unexpected LM Studio response format:', data);
+        throw new Error('Invalid response format from LM Studio');
+      }
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        console.error('LM Studio request timed out');
+        throw new Error('Request to AI model timed out. Please try a shorter prompt or check your model configuration.');
+      }
+      console.error('Error getting response from LM Studio:', error);
+      throw error;
     }
   } catch (error) {
+    clearTimeout(timeoutId);
     console.error('Error getting response from LM Studio:', error);
     throw error;
   }

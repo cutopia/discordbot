@@ -25,7 +25,7 @@ const activeGames = {};
  */
 app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async function (req, res) {
   // Interaction id, type and data
-  const { id, type, data } = req.body;
+  const { id, token, type, data } = req.body;
 
   /**
    * Handle verification requests
@@ -73,28 +73,83 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
       }
 
+      // Get channel ID for conversation context
+      const channelId = data.channel_id;
+      
       try {
-        // Get channel ID for conversation context
-        const channelId = data.channel_id;
+        console.log('Processing chat message...');
         
-        // Process the chat message with LM Studio
-        const response = await processChatMessage(message, channelId);
-        
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        // Send immediate "thinking..." response using deferred type
+        // This prevents the 3-second timeout error
+        res.send({
+          type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: response,
-            allowed_mentions: {
-              parse: ['users', 'roles']
-            }
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: 'Thinking... ⏳'
           }
         });
+        
+        // Process the chat message with LM Studio in background
+        processChatMessage(message, channelId)
+          .then(async (response) => {
+            console.log('Got response from LM Studio, editing original message...');
+            
+            try {
+              // Edit the original deferred message with the actual response
+              await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                method: 'PATCH',
+                body: {
+                  content: response,
+                  allowed_mentions: {
+                    parse: ['users', 'roles']
+                  }
+                }
+              });
+              
+              console.log('Successfully edited message with AI response');
+            } catch (editError) {
+              console.error('Error editing message:', editError);
+              // If editing fails, try to send a follow-up message
+              try {
+                await DiscordRequest(`channels/${channelId}/messages`, {
+                  method: 'POST',
+                  body: {
+                    content: `AI response: ${response}`,
+                    allowed_mentions: {
+                      parse: ['users', 'roles']
+                    }
+                  }
+                });
+              } catch (postError) {
+                console.error('Failed to send follow-up message:', postError);
+              }
+            }
+          })
+          .catch(async (error) => {
+            console.error('Error processing chat message:', error);
+            
+            try {
+              // Edit the original message with error info
+              await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                method: 'PATCH',
+                body: {
+                  content: `Sorry, I encountered an error: ${error.message}`,
+                  flags: InteractionResponseFlags.EPHEMERAL
+                }
+              });
+            } catch (editError) {
+              console.error('Error editing message with error:', editError);
+            }
+          });
+        
+        // Return immediately to avoid timeout
+        return res.status(204).end();
       } catch (error) {
-        console.error('Error processing chat command:', error);
+        console.error('Unexpected error processing chat command:', error);
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: `Sorry, I encountered an error: ${error.message}`,
+            content: `Sorry, I encountered an unexpected error: ${error.message}`,
             flags: InteractionResponseFlags.EPHEMERAL
           }
         });
