@@ -10,6 +10,7 @@ import {
 } from 'discord-interactions';
 import { getRandomEmoji, DiscordRequest } from './utils.js';
 import { getShuffledOptions, getResult } from './game.js';
+import { processChatMessage, clearChannelHistory } from './chatbot.js';
 
 // Create an express app
 const app = express();
@@ -55,6 +56,62 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
             }
           ]
         },
+      });
+    }
+
+    // "chat" command - sends message to LM Studio for processing
+    if (name === 'chat') {
+      const message = data.options?.[0]?.value || '';
+      
+      if (!message) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: 'Please provide a message to send to the AI.',
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
+
+      try {
+        // Get channel ID for conversation context
+        const channelId = data.channel_id;
+        
+        // Process the chat message with LM Studio
+        const response = await processChatMessage(message, channelId);
+        
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: response,
+            allowed_mentions: {
+              parse: ['users', 'roles']
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Error processing chat command:', error);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `Sorry, I encountered an error: ${error.message}`,
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
+    }
+
+    // "clearchat" command - clears conversation history for the channel
+    if (name === 'clearchat') {
+      const channelId = data.channel_id;
+      clearChannelHistory(channelId);
+      
+      return res.send({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: 'Conversation history cleared for this channel.',
+          flags: InteractionResponseFlags.EPHEMERAL
+        }
       });
     }
 

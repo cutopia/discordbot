@@ -2,7 +2,7 @@
   "name": "discord-getting-started",
   "private": true,
   "version": "1.0.0",
-  "description": "Discord example app",
+  "description": "Discord example app with LM Studio integration",
   "main": "app.js",
   "type": "module",
   "engines": {
@@ -11,14 +11,16 @@
   "scripts": {
     "start": "node app.js",
     "register": "node commands.js",
-    "dev": "nodemon app.js"
+    "dev": "nodemon app.js",
+    "test-lmstudio": "node test-lmstudio.js"
   },
   "author": "Shay DeWael",
   "license": "MIT",
   "dependencies": {
     "discord-interactions": "^4.0.0",
     "dotenv": "^16.0.3",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.0"
