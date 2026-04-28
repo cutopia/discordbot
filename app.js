@@ -8,7 +8,7 @@ import {
   MessageComponentTypes,
   verifyKeyMiddleware,
 } from 'discord-interactions';
-import { getRandomEmoji, DiscordRequest } from './utils.js';
+import { getRandomEmoji, DiscordRequest, splitMessage } from './utils.js';
 import { getShuffledOptions, getResult } from './game.js';
 import { processChatMessage, clearChannelHistory } from './chatbot.js';
 
@@ -93,11 +93,14 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
             console.log('Got response from LM Studio, editing original message...');
             
             try {
-              // Edit the original deferred message with the actual response
+              // Split response if it's too long for Discord
+              const chunks = splitMessage(response);
+              
+              // Edit the original deferred message with the first chunk
               await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
                 method: 'PATCH',
                 body: {
-                  content: response,
+                  content: chunks[0],
                   allowed_mentions: {
                     parse: ['users', 'roles']
                   }
@@ -105,21 +108,51 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
               });
               
               console.log('Successfully edited message with AI response');
+              
+              // Send additional chunks as follow-up messages if needed
+              for (let i = 1; i < chunks.length; i++) {
+                if (channelId) {
+                  try {
+                    await DiscordRequest(`channels/${channelId}/messages`, {
+                      method: 'POST',
+                      body: {
+                        content: chunks[i],
+                        allowed_mentions: {
+                          parse: ['users', 'roles']
+                        }
+                      }
+                    });
+                    console.log(`Sent follow-up message chunk ${i + 1}/${chunks.length}`);
+                  } catch (postError) {
+                    console.error(`Failed to send follow-up message chunk ${i + 1}:`, postError);
+                  }
+                } else {
+                  console.error(`Cannot send follow-up chunk ${i + 1}: channelId is undefined`);
+                }
+              }
             } catch (editError) {
               console.error('Error editing message:', editError);
               // If editing fails, try to send a follow-up message
-              try {
-                await DiscordRequest(`channels/${channelId}/messages`, {
-                  method: 'POST',
-                  body: {
-                    content: `AI response: ${response}`,
-                    allowed_mentions: {
-                      parse: ['users', 'roles']
-                    }
+              if (channelId) {
+                try {
+                  const chunks = splitMessage(`AI response: ${response}`);
+                  
+                  for (let i = 0; i < chunks.length; i++) {
+                    await DiscordRequest(`channels/${channelId}/messages`, {
+                      method: 'POST',
+                      body: {
+                        content: chunks[i],
+                        allowed_mentions: {
+                          parse: ['users', 'roles']
+                        }
+                      }
+                    });
                   }
-                });
-              } catch (postError) {
-                console.error('Failed to send follow-up message:', postError);
+                } catch (postError) {
+                  console.error('Failed to send follow-up message:', postError);
+                }
+              } else {
+                console.error('Cannot send follow-up: channelId is undefined');
               }
             }
           })
@@ -127,13 +160,40 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
             console.error('Error processing chat message:', error);
             
             try {
-              // Edit the original message with error info
+              // Split error message if needed
+              const chunks = splitMessage(`Sorry, I encountered an error: ${error.message}`);
+              
+              // Edit the original deferred message with the first chunk
               await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
                 method: 'PATCH',
                 body: {
-                  content: `Sorry, I encountered an error: ${error.message}`
+                  content: chunks[0],
+                  allowed_mentions: {
+                    parse: ['users', 'roles']
+                  }
                 }
               });
+              
+              // Send additional chunks as follow-up messages if needed
+              for (let i = 1; i < chunks.length; i++) {
+                if (channelId) {
+                  try {
+                    await DiscordRequest(`channels/${channelId}/messages`, {
+                      method: 'POST',
+                      body: {
+                        content: chunks[i],
+                        allowed_mentions: {
+                          parse: ['users', 'roles']
+                        }
+                      }
+                    });
+                  } catch (postError) {
+                    console.error(`Failed to send follow-up error message chunk ${i + 1}:`, postError);
+                  }
+                } else {
+                  console.error(`Cannot send follow-up error chunk ${i + 1}: channelId is undefined`);
+                }
+              }
             } catch (editError) {
               console.error('Error editing message with error:', editError);
             }

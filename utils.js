@@ -1,5 +1,8 @@
 import 'dotenv/config';
 
+// Discord message length limit
+const DISCORD_MESSAGE_LIMIT = 2000;
+
 export async function DiscordRequest(endpoint, options) {
   // append endpoint to root API URL
   const url = 'https://discord.com/api/v10/' + endpoint;
@@ -58,4 +61,55 @@ export function getRandomEmoji() {
 
 export function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+/**
+ * Split a message into chunks that are within Discord's character limit
+ * @param {string} content - The message content to split
+ * @returns {Array<string>} - Array of message chunks
+ */
+export function splitMessage(content) {
+  if (!content || typeof content !== 'string') {
+    return [''];
+  }
+  
+  // If content is within the limit, return as single chunk
+  if (content.length <= DISCORD_MESSAGE_LIMIT) {
+    return [content];
+  }
+  
+  const chunks = [];
+  let currentChunk = '';
+  
+  // Split by newlines to preserve paragraph structure
+  const lines = content.split('\n');
+  
+  for (const line of lines) {
+    // If a single line is too long, split it further
+    if (line.length > DISCORD_MESSAGE_LIMIT) {
+      // Split the long line into smaller chunks
+      for (let i = 0; i < line.length; i += DISCORD_MESSAGE_LIMIT) {
+        const chunk = line.substring(i, i + DISCORD_MESSAGE_LIMIT);
+        chunks.push(chunk);
+      }
+    } else if (currentChunk.length + line.length + 1 <= DISCORD_MESSAGE_LIMIT) {
+      // Add line to current chunk
+      if (currentChunk.length > 0) {
+        currentChunk += '\n' + line;
+      } else {
+        currentChunk = line;
+      }
+    } else {
+      // Current chunk is full, save it and start a new one
+      chunks.push(currentChunk);
+      currentChunk = line;
+    }
+  }
+  
+  // Add the last chunk if it exists
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+  
+  return chunks;
 }
