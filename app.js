@@ -131,7 +131,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 console.log(`Sending paginated message with ${chunks.length} pages...`);
                 
                 // Send first chunk with pagination controls
-                await sendPaginatedMessage(channelId, chunks, DiscordRequest);
+                await sendPaginatedMessage(channelId, chunks, DiscordRequest, process.env.DISCORD_APP_ID, token);
                 
                 console.log('Successfully sent paginated response');
               } else {

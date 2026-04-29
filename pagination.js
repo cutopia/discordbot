@@ -102,8 +102,10 @@ export function createPaginationComponents(currentPage, totalPages) {
 
 /**
  * Store pagination state for a message
- * @param {string} messageId - The Discord message ID
- * @param {Array<string>} chunks - Array of message chunks
+ * Key format: `${channelId}_${messageId}` (used for button click lookups)
+ * Using channel + message ID ensures the key persists across interactions
+ * @param {string} channelIdMessageIdKey - Combined channel ID and message ID as lookup key
+ * @param {Object} paginationData - Pagination session data containing chunks, currentPage, totalPages
  */
 export const paginationStore = new Map();
 
@@ -111,9 +113,11 @@ export const paginationStore = new Map();
  * Save pagination data and return message ID
  * @param {string} channelId - Discord channel ID
  * @param {Array<string>} chunks - Message chunks to paginate
+ * @param {string} webhookId - Application ID (webhook ID)
+ * @param {string} token - Interaction token
  * @returns {Promise<string>} - The first message ID
  */
-export async function sendPaginatedMessage(channelId, chunks, DiscordRequest) {
+export async function sendPaginatedMessage(channelId, chunks, DiscordRequest, webhookId, token) {
   if (!chunks || chunks.length === 0) {
     return null;
   }
@@ -124,20 +128,6 @@ export async function sendPaginatedMessage(channelId, chunks, DiscordRequest) {
     throw new Error('Invalid channel ID');
   }
   
-  // Generate a unique identifier for this pagination session
-  const sessionId = `pagination_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
-  // Store the chunks and current page info
-  paginationStore.set(sessionId, {
-    chunks,
-    currentPage: 0,
-    totalPages: chunks.length
-  });
-  
-  // Send first chunk with pagination controls if needed
-  const hasMultiplePages = chunks.length > 1;
-  const components = hasMultiplePages ? createPaginationComponents(0, chunks.length) : undefined;
-  
   try {
     console.log(`Attempting to send paginated message to channel: ${channelId}`);
     
@@ -147,17 +137,29 @@ export async function sendPaginatedMessage(channelId, chunks, DiscordRequest) {
       allowed_mentions: { parse: ['users', 'roles'] }
     };
     
+    const hasMultiplePages = chunks.length > 1;
     if (hasMultiplePages) {
-      requestBody.components = components;
+      requestBody.components = createPaginationComponents(0, chunks.length);
     }
     
     const response = await DiscordRequest(`channels/${channelId}/messages`, {
       method: 'POST',
-      body: JSON.stringify(requestBody)
+      body: requestBody
     });
     
     const data = await response.json();
     console.log(`Successfully sent first message with ID: ${data.id}`);
+    
+    // Store pagination data using channel + message ID as key for persistent lookup
+    const storeKey = `${channelId}_${data.id}`;
+    paginationStore.set(storeKey, {
+      chunks,
+      currentPage: 0,
+      totalPages: chunks.length,
+      channelId: channelId
+    });
+    console.log(`Pagination session stored with key: ${storeKey}`);
+    
     return data.id;
   } catch (error) {
     console.error('Error sending first paginated message:', error);
@@ -171,12 +173,24 @@ export async function sendPaginatedMessage(channelId, chunks, DiscordRequest) {
  * @param {string} webhookId - The application ID (webhook ID)
  * @param {string} token - The interaction token
  * @param {Array<string>} chunks - Message chunks to paginate
+ * @param {string} channelId - Discord channel ID (for pagination store key)
+ * @param {string} messageId - Message ID (for pagination store key)
  * @returns {Promise<void>}
  */
-export async function updateMessageWithPagination(webhookId, token, chunks) {
+export async function updateMessageWithPagination(webhookId, token, chunks, channelId, messageId) {
   if (!chunks || chunks.length <= 1) {
     return;
   }
+  
+  // Store pagination data with the correct key for button lookups
+  const sessionKey = `${channelId}_${messageId}`;
+  paginationStore.set(sessionKey, {
+    chunks,
+    currentPage: 0,
+    totalPages: chunks.length
+  });
+  
+  console.log(`Pagination session updated with key: ${sessionKey}`);
   
   // Update the original message with pagination controls
   const components = createPaginationComponents(0, chunks.length);
@@ -193,7 +207,7 @@ export async function updateMessageWithPagination(webhookId, token, chunks) {
     
     await DiscordRequest(`webhooks/${webhookId}/${token}/messages/@original`, {
       method: 'PATCH',
-      body: JSON.stringify(requestBody)
+      body: requestBody
     });
   } catch (error) {
     console.error('Error updating message with pagination:', error);
@@ -230,12 +244,15 @@ export async function handlePaginationInteraction(customId, channelId, messageId
       break;
       
     case 'next':
-      currentPage = parseInt(parts[2], 10);
-      const sessionKey = `${webhookId}_${token}`;
-      const paginationData = paginationStore.get(sessionKey);
+      // Get current page from stored data
+      const sessionKeyNext = `${channelId}_${messageId}`;
+      const paginationDataNext = paginationStore.get(sessionKeyNext);
       
-      if (paginationData && currentPage < paginationData.totalPages - 1) {
-        currentPage++;
+      if (paginationDataNext && paginationDataNext.currentPage < paginationDataNext.totalPages - 1) {
+        currentPage = paginationDataNext.currentPage + 1;
+      } else {
+        // Use parsed value as fallback
+        currentPage = parseInt(parts[2], 10);
       }
       break;
       
@@ -243,11 +260,13 @@ export async function handlePaginationInteraction(customId, channelId, messageId
       return null;
   }
   
-  // Get the current pagination data
-  const sessionKey = `${webhookId}_${token}`;
-  const paginationData = paginationStore.get(sessionKey);
+  // Get the current pagination data using channel + message ID as key
+  const sessionKey = `${channelId}_${messageId}`;
+  let paginationData = paginationStore.get(sessionKey);
   
   if (!paginationData || !paginationData.chunks) {
+    console.error(`Pagination data not found for key: ${sessionKey}`);
+    console.log('Available keys in paginationStore:', Array.from(paginationStore.keys()));
     return {
       type: 4, // Channel Message With Source
       data: {
