@@ -11,6 +11,11 @@ import {
 import { getRandomEmoji, DiscordRequest, splitMessage } from './utils.js';
 import { getShuffledOptions, getResult } from './game.js';
 import { processChatMessage, clearChannelHistory } from './chatbot.js';
+import {
+  sendPaginatedMessage,
+  handlePaginationInteraction,
+  paginationStore
+} from './pagination.js';
 
 // Create an express app
 const app = express();
@@ -24,7 +29,7 @@ const activeGames = {};
  * Parse request body and verifies incoming requests using discord-interactions package
  */
 app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async function (req, res) {
-  // Interaction id, type and data
+  // Interaction id, token, type and data
   const { id, token, type, data } = req.body;
 
   /**
@@ -87,6 +92,19 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
       }
       
+      // Check if this is a DM/GDM channel (type 1 or 3) where bot might not have permission
+      const channelType = req.body.channel_type;
+      if (channelType === 1 || channelType === 3) {
+        console.warn(`Warning: Command invoked in DM/GDM channel (type ${channelType}). Bot may not have permission to post.`);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: 'This command is only available in server channels where the bot has permission to post messages.',
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
+      
       try {
         console.log('Processing chat message...');
         
@@ -108,57 +126,44 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
               // Split response if it's too long for Discord
               const chunks = splitMessage(response);
               
-              // Edit the original deferred message with the first chunk
-              await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
-                method: 'PATCH',
-                body: {
-                  content: chunks[0],
-                  allowed_mentions: {
-                    parse: ['users', 'roles']
-                  }
-                }
-              });
-              
-              console.log('Successfully edited message with AI response');
-              
-              // Send additional chunks as follow-up messages using webhook (more reliable)
-              for (let i = 1; i < chunks.length; i++) {
-                try {
-                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages`, {
-                    method: 'POST',
-                    body: {
-                      content: chunks[i],
-                      allowed_mentions: {
-                        parse: ['users', 'roles']
-                      }
-                    }
-                  });
-                  console.log(`Sent follow-up message chunk ${i + 1}/${chunks.length}`);
-                } catch (postError) {
-                  console.error(`Failed to send follow-up message chunk ${i + 1}:`, postError);
-                  // If webhook fails, try channel API as fallback
-                  if (channelId) {
-                    try {
-                      await DiscordRequest(`channels/${channelId}/messages`, {
-                        method: 'POST',
-                        body: {
-                          content: chunks[i],
-                          allowed_mentions: {
-                            parse: ['users', 'roles']
-                          }
-                        }
-                      });
-                      console.log(`Sent follow-up message chunk ${i + 1}/${chunks.length} via channel API`);
-                    } catch (channelError) {
-                      console.error(`Failed to send follow-up message chunk ${i + 1} via channel API:`, channelError);
+              // If we have multiple chunks, use pagination system
+              if (chunks.length > 1) {
+                console.log(`Sending paginated message with ${chunks.length} pages...`);
+                
+                // Send first chunk with pagination controls
+                await sendPaginatedMessage(channelId, chunks, DiscordRequest);
+                
+                console.log('Successfully sent paginated response');
+              } else {
+                // Single chunk - edit original message directly
+                console.log('Sending single chunk response...');
+                
+                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                  method: 'PATCH',
+                  body: {
+                    content: chunks[0],
+                    allowed_mentions: {
+                      parse: ['users', 'roles']
                     }
                   }
-                }
+                });
+                
+                console.log('Successfully edited message with AI response');
               }
             } catch (editError) {
-              console.error('Error editing message:', editError);
-              // If editing fails, try to send a follow-up message
-              if (channelId) {
+              console.error('Error sending paginated message:', editError);
+              
+              // Check if it's a permission error
+              const isPermissionError = 
+                editError.message?.includes('50001') || // Missing Access
+                editError.message?.includes('50013');   // Missing Permissions
+                
+              if (isPermissionError) {
+                console.warn('Bot lacks permission to post in this channel. The command may have been invoked in a DM or restricted channel.');
+              }
+              
+              // Fallback to regular message sending only if we have a valid server channel
+              if (channelId && !isPermissionError) {
                 try {
                   const chunks = splitMessage(`AI response: ${response}`);
                   
@@ -174,19 +179,30 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                     });
                   }
                 } catch (postError) {
-                  console.error('Failed to send follow-up message:', postError);
+                  console.error('Failed to send fallback message:', postError);
                 }
-              } else {
-                console.error('Cannot send follow-up: channelId is undefined');
+              } else if (!channelId) {
+                console.warn('No valid channel ID available for fallback messages');
               }
             }
           })
           .catch(async (error) => {
             console.error('Error processing chat message:', error);
             
+            // Check if it's a permission error
+            const isPermissionError = 
+              error.message?.includes('50001') || // Missing Access
+              error.message?.includes('50013');   // Missing Permissions
+            
             try {
               // Split error message if needed
               const chunks = splitMessage(`Sorry, I encountered an error: ${error.message}`);
+              
+              // If we have permission issues, don't try to send follow-up messages via webhook
+              if (isPermissionError) {
+                console.warn('Bot lacks permission to post in this channel. Error message will not be sent.');
+                return;
+              }
               
               // Edit the original deferred message with the first chunk
               await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
@@ -199,7 +215,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 }
               });
               
-              // Send additional chunks as follow-up messages using webhook (more reliable)
+              // Send additional chunks as follow-up messages if needed
               for (let i = 1; i < chunks.length; i++) {
                 try {
                   await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages`, {
@@ -214,8 +230,9 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                   console.log(`Sent follow-up error message chunk ${i + 1}/${chunks.length}`);
                 } catch (postError) {
                   console.error(`Failed to send follow-up error message chunk ${i + 1}:`, postError);
+                  
                   // If webhook fails, try channel API as fallback
-                  if (channelId) {
+                  if (channelId && !isPermissionError) {
                     try {
                       await DiscordRequest(`channels/${channelId}/messages`, {
                         method: 'POST',
@@ -267,6 +284,42 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
 
     console.error(`unknown command: ${name}`);
     return res.status(400).json({ error: 'unknown command' });
+  }
+
+  /**
+   * Handle requests from interactive components (button clicks)
+   */
+  if (type === InteractionType.MESSAGE_COMPONENT) {
+    const componentId = data.custom_id;
+    const channelId = req.body.channel.id;
+    const messageId = req.body.message.id;
+    
+    console.log('Received button click:', componentId);
+    
+    // Check if this is a pagination button
+    if (componentId.startsWith('pagination_')) {
+      try {
+        const response = await handlePaginationInteraction(
+          componentId,
+          channelId,
+          messageId,
+          process.env.DISCORD_APP_ID,
+          token
+        );
+        
+        if (response) {
+          return res.send(response);
+        }
+      } catch (error) {
+        console.error('Error handling pagination interaction:', error);
+      }
+    }
+    
+    // Default response for unknown components
+    return res.send({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: 'Button clicked!' }
+    });
   }
 
   console.error('unknown interaction type', type);

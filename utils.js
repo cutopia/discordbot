@@ -67,6 +67,34 @@ export function getRandomEmoji() {
   return emojiList[Math.floor(Math.random() * emojiList.length)];
 }
 
+/**
+ * Check if a channel ID is likely to be a server channel (type 0)
+ * DM channels have type 1, Group DMs have type 3
+ * @param {string} channelId - Discord channel ID
+ * @returns {boolean} - True if likely a server channel
+ */
+export function isServerChannel(channelId) {
+  // Basic validation: channel IDs should be numeric strings
+  if (!channelId || typeof channelId !== 'string' || !/^\d+$/.test(channelId)) {
+    return false;
+  }
+  
+  // Note: We can't determine the exact channel type from just the ID,
+  // but we can check if it's a valid format for a server channel
+  return true;
+}
+
+/**
+ * Check if an error is related to permissions or access issues
+ * @param {Error} error - The error object
+ * @returns {boolean} - True if it's a permission/access error
+ */
+export function isPermissionError(error) {
+  const errorMessage = typeof error === 'string' ? error : error?.message || '';
+  return errorMessage.includes('50001') || // Missing Access
+         errorMessage.includes('50013');   // Missing Permissions
+}
+
 export function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
