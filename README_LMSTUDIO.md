@@ -1,22 +1,30 @@
-# Discord Bot with LM Studio Integration
+# Discord Bot with LM Studio Integration and RAG Support
 
-This is a modified version of the Discord bot example that connects to your self-hosted LM Studio instance and functions as an intelligent chatbot.
+This is a modified version of the Discord bot example that connects to your self-hosted LM Studio instance and functions as an intelligent chatbot with Retrieval-Augmented Generation (RAG) capabilities.
 
 ## What's New?
 
+### LM Studio Features
 - **LM Studio Integration**: Connects to your local AI model via LM Studio API
 - **Conversation Memory**: Remembers context within each channel for natural conversations
 - **Simple Commands**: `/chat` to send messages, `/clearchat` to reset history
+
+### RAG (Retrieval-Augmented Generation) Features
+- **PDF Source Selection**: Choose from multiple PDF documents as knowledge sources
+- **Vector Store Creation**: Automatically creates vector embeddings for efficient search
+- **Context-Aware Responses**: AI answers questions based on your selected document(s)
+- **Multiple Sources**: Support for switching between different PDF knowledge bases
 
 ## Quick Start
 
 ### 1. Prerequisites
 - Node.js 18+
 - LM Studio installed and running with a loaded model
+- PDF files to use as knowledge sources (place in `ragsourcebooks/` directory)
 
 ### 2. Setup
 ```bash
-# Install dependencies (includes node-fetch for API calls)
+# Install dependencies (includes RAG packages: pdf-parse, langchain)
 npm install
 
 # Copy environment template
@@ -30,23 +38,22 @@ cp .env.example .env
 2. Load any model you want to use
 3. Click "Start Server" (default: http://localhost:1234)
 
-### 4. Test Connection
+### 4. Add PDF Sources
+Place your PDF files in the `ragsourcebooks/` directory:
+- Heart_Core_Book_Delve_Edition_2024-07-23.pdf
+- Those_Dark_Places.pdf
+
+### 5. Test Connection
 ```bash
 npm run test-lmstudio
+node test-rag.js
 ```
 
-### 5. Register Commands & Start
+### 6. Register Commands & Start
 ```bash
 npm run register
 npm start
 ```
-
-## Usage
-
-In Discord, use these slash commands:
-
-- `/chat message:Hello!` - Send a message to your AI model
-- `/clearchat` - Clear conversation history for the current channel
 
 The bot will remember context within each channel for natural conversations!
 
@@ -115,6 +122,17 @@ temperature: 0.7,     // Creativity level
 max_tokens: -1,       // Response length
 ```
 
+## RAG Configuration
+
+For full RAG functionality with vector embeddings:
+
+1. Add your OpenAI API key to `.env`:
+   ```env
+   OPENAI_API_KEY=sk-your_api_key_here
+   ```
+
+2. Or modify `rag.js` to use a different embedding provider for local development.
+
 ## What Changed from Original?
 
 | Feature | Original Bot | New Chat Bot |
@@ -124,11 +142,23 @@ max_tokens: -1,       // Response length
 | Customizable Model | ❌ | ✅ Any model |
 | Context Awareness | ❌ | ✅ Yes |
 
+## RAG Features Added
+
+| Feature | Description |
+|---------|-------------|
+| PDF Source Selection | Choose from multiple PDF documents as knowledge sources |
+| Vector Store Creation | Automatically creates vector embeddings for efficient search |
+| Context-Aware Responses | AI answers questions based on your selected document(s) |
+| Multiple Sources | Support for switching between different PDF knowledge bases |
+
 ## Next Steps
 
 1. Set up your `.env` file
 2. Load a model in LM Studio
 3. Test with `npm run test-lmstudio`
-4. Register commands and start chatting!
+4. Add PDF files to `ragsourcebooks/` directory
+5. Register commands and start chatting!
 
 Enjoy your intelligent Discord bot powered by your self-hosted AI model! 🚀
+
+For more information, see the [RAG Feature Guide](RAG_FEATURE.md).

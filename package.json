@@ -2,7 +2,7 @@
   "name": "discord-getting-started",
   "private": true,
   "version": "1.0.0",
-  "description": "Discord example app with LM Studio integration",
+  "description": "Discord example app with LM Studio integration and RAG support",
   "main": "app.js",
   "type": "module",
   "engines": {
@@ -12,15 +12,25 @@
     "start": "node app.js",
     "register": "node commands.js",
     "dev": "nodemon app.js",
-    "test-lmstudio": "node test-lmstudio.js"
+    "test-lmstudio": "node test-lmstudio.js",
+    "test-rag": "node test-rag.js"
   },
   "author": "Shay DeWael",
   "license": "MIT",
   "dependencies": {
+    "@langchain/core": "^1.1.42",
+    "@langchain/openai": "^1.4.5",
+    "@langchain/textsplitters": "^1.0.1",
     "discord-interactions": "^4.0.0",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
-    "node-fetch": "^3.3.0"
+    "langchain": "^1.2.1",
+    "node-fetch": "^3.3.2",
+    "pdf-parse": "^1.1.1",
+    "uuid": "^14.0.0"
+  },
+  "overrides": {
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.0"
