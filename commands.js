@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import { InstallGlobalCommands, InstallGuildCommands } from './utils.js';
+import { getAvailablePDFs } from './rag.js';
+
+const availablePDFs = getAvailablePDFs();
 
 const commands = [
   {
@@ -21,6 +24,30 @@ const commands = [
   {
     name: 'clearchat',
     description: 'Clear conversation history for this channel'
+  },
+  {
+    name: 'rag_source',
+    description: 'Select a PDF source for RAG (Retrieval-Augmented Generation)',
+    options: [
+      {
+        type: 3, // STRING type
+        name: 'source',
+        description: 'Which PDF document to use as knowledge base',
+        required: true,
+        choices: availablePDFs.map(pdf => ({
+          name: pdf.name,
+          value: pdf.path
+        }))
+      }
+    ]
+  },
+  {
+    name: 'rag_clear',
+    description: 'Clear the current RAG vector store'
+  },
+  {
+    name: 'rag_list',
+    description: 'List all available PDF sources for RAG'
   }
 ];
 

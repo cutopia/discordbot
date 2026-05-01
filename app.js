@@ -12,6 +12,11 @@ import { getRandomEmoji, DiscordRequest, splitMessage } from './utils.js';
 import { getShuffledOptions, getResult } from './game.js';
 import { processChatMessage, clearChannelHistory } from './chatbot.js';
 import {
+  getAvailablePDFs,
+  getOrCreateVectorStore,
+  clearAllVectorStores
+} from './rag.js';
+import {
   sendPaginatedMessage,
   handlePaginationInteraction,
   paginationStore
@@ -277,6 +282,111 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: {
           content: 'Conversation history cleared for this channel.',
+          flags: InteractionResponseFlags.EPHEMERAL
+        }
+      });
+    }
+
+    // "rag_source" command - select a PDF source for RAG
+    if (name === 'rag_source') {
+      const pdfPath = data.options?.[0]?.value || '';
+      
+      if (!pdfPath) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: 'Please select a PDF source.',
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
+
+      try {
+        // Send immediate "thinking..." response
+        res.send({
+          type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: 'Loading document... ⏳'
+          }
+        });
+
+        // Process the PDF in background
+        getOrCreateVectorStore(pdfPath)
+          .then(() => {
+            const sourceName = pdfPath.split('/').pop().replace('.pdf', '');
+            
+            DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+              method: 'PATCH',
+              body: {
+                content: `✅ Successfully loaded **${sourceName}** as RAG source! The bot can now answer questions based on this document.`,
+                flags: InteractionResponseFlags.EPHEMERAL
+              }
+            });
+          })
+          .catch(error => {
+            console.error('Error loading PDF:', error);
+            
+            DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+              method: 'PATCH',
+              body: {
+                content: `❌ Error loading PDF: ${error.message}`,
+                flags: InteractionResponseFlags.EPHEMERAL
+              }
+            });
+          });
+
+        return res.status(204).end();
+      } catch (error) {
+        console.error('Unexpected error in rag_source command:', error);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `❌ Unexpected error: ${error.message}`,
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
+    }
+
+    // "rag_clear" command - clear RAG vector stores
+    if (name === 'rag_clear') {
+      try {
+        clearAllVectorStores();
+        
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: '✅ All RAG vector stores have been cleared.',
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      } catch (error) {
+        console.error('Error clearing RAG stores:', error);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `❌ Error clearing vector stores: ${error.message}`,
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
+    }
+
+    // "rag_list" command - list available PDF sources
+    if (name === 'rag_list') {
+      const pdfs = getAvailablePDFs();
+      
+      let responseContent;
+      if (pdfs.length === 0) {
+        responseContent = 'No PDF files found in the ragsourcebooks directory.';
+      } else {
+        responseContent = `📚 Available RAG Sources:\n${pdfs.map(pdf => `- **${pdf.name}**`).join('\n')}\n\nUse /rag_source to select one as your knowledge base.`;
+      }
+      
+      return res.send({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: responseContent,
           flags: InteractionResponseFlags.EPHEMERAL
         }
       });

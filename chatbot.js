@@ -1,7 +1,11 @@
 import { getLMStudioResponse } from './lmstudio.js';
+import { queryVectorStore, vectorStores } from './rag.js';
 
 // Store conversation history per channel
 const conversationHistory = new Map();
+
+// Store active RAG source per channel
+const activeRAGSources = new Map();
 
 /**
  * Get conversation history for a specific channel
@@ -36,15 +40,34 @@ function addToHistory(channelId, role, content) {
 }
 
 /**
+ * Set the active RAG source for a channel
+ * @param {string} channelId - The Discord channel ID
+ * @param {string} sourceName - Name of the PDF source
+ */
+export function setRAGSource(channelId, sourceName) {
+  activeRAGSources.set(channelId, sourceName);
+}
+
+/**
+ * Get the active RAG source for a channel
+ * @param {string} channelId - The Discord channel ID
+ * @returns {string|null} - Active source name or null
+ */
+export function getRAGSource(channelId) {
+  return activeRAGSources.get(channelId) || null;
+}
+
+/**
  * Clear conversation history for a channel
  * @param {string} channelId - The Discord channel ID
  */
 export function clearChannelHistory(channelId) {
   conversationHistory.delete(channelId);
+  activeRAGSources.delete(channelId);
 }
 
 /**
- * Process a chat message using LM Studio
+ * Process a chat message using LM Studio with optional RAG context
  * @param {string} message - The user's message
  * @param {string} channelId - The Discord channel ID for context
  * @returns {Promise<string>} - The AI's response
@@ -54,8 +77,31 @@ export async function processChatMessage(message, channelId) {
     // Get conversation history for this channel
     const history = getChannelHistory(channelId);
     
+    // Check if there's an active RAG source for this channel
+    const ragSource = getRAGSource(channelId);
+    let enhancedMessage = message;
+    
+    if (ragSource && vectorStores.has(ragSource)) {
+      try {
+        // Get relevant context from the vector store
+        const docs = await queryVectorStore(ragSource, message, 3);
+        
+        if (docs.length > 0) {
+          // Format context for the AI
+          const contextText = docs.map((doc, index) => 
+            `Context ${index + 1}:\n${doc.content}\n`
+          ).join('\n---\n');
+          
+          enhancedMessage = `Based on the following context from ${ragSource}:\n\n${contextText}\n\nUser question: ${message}`;
+        }
+      } catch (error) {
+        console.error('Error querying vector store:', error);
+        // Continue with original message if RAG fails
+      }
+    }
+    
     // Get response from LM Studio
-    const response = await getLMStudioResponse(message, history);
+    const response = await getLMStudioResponse(enhancedMessage, history);
     
     // Add messages to history
     addToHistory(channelId, 'user', message);
