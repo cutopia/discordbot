@@ -6,6 +6,39 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse/lib/pdf-parse.js');
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+
+/**
+ * Load the RAG prompt template from prompt.txt
+ */
+function loadRagPromptTemplate() {
+  const promptPath = path.join(__dirname, 'prompt.txt');
+  
+  try {
+    if (fs.existsSync(promptPath)) {
+      return fs.readFileSync(promptPath, 'utf8');
+    }
+  } catch (error) {
+    console.error('Error loading RAG prompt template:', error);
+  }
+  
+  // Default fallback prompt
+  return `You are a helpful AI roleplaying game expert system that answers questions based on the provided context.
+Rules:
+1. Only use information from the provided context to answer questions.
+2. If the context doesn't contain enough information, say so honestly
+3. Be specific and cite relevant parts of the context
+4. Keep your answers clear and concise
+5. If you're unsure, admit it rather than guessing.
+6. If asked to do a creative task such as coming up with a character biography or adventure idea, do NOT just copy the examples in the provided context. Instead, be as original as you can while carefully fitting into the provided context's own world.
+
+Context:
+{context}
+
+Question: {input}
+
+Answer based on the context above:`;
+}
+
 // Local embedding implementation - no external API dependencies
 
 /**
@@ -207,6 +240,9 @@ class SimpleVectorStore {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load the RAG prompt template
+const ragPromptTemplate = loadRagPromptTemplate();
+
 // Store vector stores per channel
 const vectorStores = new Map();
 const sourceDocuments = new Map();
@@ -340,6 +376,44 @@ export async function getContextForQuery(sourceName, query, k = 3) {
   } catch (error) {
     console.error('Error getting context:', error);
     return 'Error retrieving context from knowledge base.';
+  }
+}
+
+/**
+ * Format a query using the RAG prompt template
+ * @param {string} sourceName - Name of the RAG source
+ * @param {string} query - The user's question
+ * @param {string} context - The retrieved context from vector store
+ * @returns {string} - Formatted prompt with context and instructions
+ */
+export function formatQueryWithPrompt(sourceName, query, context) {
+  if (!ragPromptTemplate) {
+    // Fallback if template couldn't be loaded
+    return `Based on the following context from ${sourceName}:\n\n${context}\n\nQuestion: ${query}`;
+  }
+  
+  // Replace placeholders in the prompt template
+  let formatted = ragPromptTemplate.replace('{context}', context);
+  formatted = formatted.replace('{input}', query);
+  
+  return formatted;
+}
+
+/**
+ * Get a formatted RAG query for LM Studio
+ * This combines the prompt template with retrieved context
+ * @param {string} sourceName - Name of the RAG source
+ * @param {string} query - The user's question
+ * @param {number} k - Number of context chunks to retrieve (default: 3)
+ * @returns {Promise<string>} - Formatted prompt ready for LM Studio
+ */
+export async function getRagQuery(sourceName, query, k = 3) {
+  try {
+    const context = await getContextForQuery(sourceName, query, k);
+    return formatQueryWithPrompt(sourceName, query, context);
+  } catch (error) {
+    console.error('Error getting RAG query:', error);
+    return `Question: ${query}\n\nNote: Could not retrieve context from knowledge base.`;
   }
 }
 

@@ -1,5 +1,5 @@
 import { getLMStudioResponse } from './lmstudio.js';
-import { queryVectorStore, vectorStores } from './rag.js';
+import { queryVectorStore, vectorStores, getRagQuery } from './rag.js';
 
 // Store conversation history per channel
 const conversationHistory = new Map();
@@ -83,19 +83,10 @@ export async function processChatMessage(message, channelId) {
     
     if (ragSource && vectorStores.has(ragSource)) {
       try {
-        // Get relevant context from the vector store
-        const docs = await queryVectorStore(ragSource, message, 3);
-        
-        if (docs.length > 0) {
-          // Format context for the AI
-          const contextText = docs.map((doc, index) => 
-            `Context ${index + 1}:\n${doc.content}\n`
-          ).join('\n---\n');
-          
-          enhancedMessage = `Based on the following context from ${ragSource}:\n\n${contextText}\n\nUser question: ${message}`;
-        }
+        // Get formatted RAG query using the prompt template from prompt.txt
+        enhancedMessage = await getRagQuery(ragSource, message, 3);
       } catch (error) {
-        console.error('Error querying vector store:', error);
+        console.error('Error getting RAG query:', error);
         // Continue with original message if RAG fails
       }
     }
