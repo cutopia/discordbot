@@ -3,7 +3,7 @@
  * This simulates the scenario where conversation history was overriding RAG context
  */
 
-import { processChatMessage, setRAGSource, clearChannelHistory } from './chatbot.js';
+import { processChatMessage, setRAGSource, clearChannelHistory } from '../chatbot.js';
 
 // Mock vector stores for testing
 const mockVectorStores = new Map();
@@ -38,7 +38,7 @@ Answer based on the context above:`;
 }
 
 // Override getRagQuery for testing
-import { getRagQuery } from './rag.js';
+import { getRagQuery } from '../rag.js';
 const originalGetRagQuery = getRagQuery;
 global.getRagQuery = mockGetRagQuery;
 
@@ -79,7 +79,7 @@ async function runTests() {
   ];
   
   // Manually add to history for testing
-  const { conversationHistory } = await import('./chatbot.js');
+  const { conversationHistory } = await import('../chatbot.js');
   if (conversationHistory) {
     conversationHistory.set(testChannelId, mockHistory);
   }
@@ -98,7 +98,7 @@ async function runTests() {
   
   // Test 5: Verify empty history is used for RAG queries
   console.log('Test 5: Verifying empty history for RAG queries');
-  const { processChatMessage: originalProcessChatMessage } = await import('./chatbot.js');
+  const { processChatMessage: originalProcessChatMessage } = await import('../chatbot.js');
   console.log('✓ Implementation uses [] for history when RAG source is active\n');
   
   // Restore original function

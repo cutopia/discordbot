@@ -33,7 +33,7 @@ project/
 ├── app.js                    # Main bot file (updated with RAG commands)
 ├── chatbot.js               # Chat processing with RAG integration
 ├── rag.js                   # RAG functionality module
-├── test-rag.js              # Test script for RAG
+├── tests/test-rag.js              # Test script for RAG
 ├── commands.js              # Slash command definitions
 ├── package.json             # Dependencies (updated)
 ├── .env                     # Environment variables
@@ -98,7 +98,7 @@ OPENAI_API_KEY=sk-your_api_key
 
 Run the test script:
 ```bash
-node test-rag.js
+node tests/test-rag.js
 ```
 
 Expected output shows successful PDF extraction, vector store creation, and query functionality.
@@ -130,4 +130,4 @@ Expected output shows successful PDF extraction, vector store creation, and quer
 
 - Read `RAG_FEATURE.md` for detailed documentation
 - Check `RAG_INSTALLATION.md` for setup instructions
-- Review `test-rag.js` for code examples
+- Review `tests/test-rag.js` for code examples

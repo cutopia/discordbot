@@ -1,6 +1,17 @@
 # AGENTS.md
 
 ## Project Structure Policy
+
+### Tests Directory
+
+**All tests must be placed in the `tests/` directory.**
+
+When creating new test files:
+- Place all test files in the `tests/` subdirectory
+- Update import paths to reference modules from the project root (use `../module.js`)
+- Add test scripts to `package.json` if needed
+
+### Documentation Directory
 All generated documentation should be placed in the docs directory.
 
 ## Model Usage Policy

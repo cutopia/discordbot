@@ -24,7 +24,7 @@ Modified the simple Discord bot example to connect to your self-hosted LM Studio
 - Template for environment configuration
 - Includes LM Studio-specific variables
 
-### 4. `test-lmstudio.js` (46 lines)
+### 4. `tests/tests/test-lmstudio.js` (46 lines)
 - Standalone test script to verify LM Studio connection
 - Tests model fetching and message sending
 

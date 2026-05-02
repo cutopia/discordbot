@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { getLMStudioResponse, getLMStudioModels } from './lmstudio.js';
+import { getLMStudioResponse, getLMStudioModels } from '../lmstudio.js';
 
 async function testConnection() {
   console.log('Testing LM Studio connection...\n');

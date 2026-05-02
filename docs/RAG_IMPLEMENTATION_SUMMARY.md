@@ -62,7 +62,7 @@ clearChannelHistory(channelId)          // Also clears RAG source
 - `@langchain/textsplitters@^0.0.3` - Text chunking
 - `langchain@^0.1.27` - Core LangChain library
 
-### 5. Testing (`test-rag.js`)
+### 5. Testing (`tests/test-rag.js`)
 
 **Test Coverage:**
 - PDF file detection and listing
@@ -86,7 +86,7 @@ clearChannelHistory(channelId)          // Also clears RAG source
 
 | File | Purpose |
 |------|---------|
-| `test-rag.js` | Test script for RAG functionality |
+| `tests/test-rag.js` | Test script for RAG functionality |
 | `RAG_FEATURE.md` | Comprehensive feature documentation |
 | `RAG_INSTALLATION.md` | Step-by-step installation guide |
 | `RAG_QUICK_REFERENCE.md` | Quick reference for users |
@@ -163,7 +163,7 @@ OPENAI_API_KEY=sk-your_api_key
 
 Run the test script:
 ```bash
-node test-rag.js
+node tests/test-rag.js
 ```
 
 This will verify:

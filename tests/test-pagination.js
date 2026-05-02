@@ -1,4 +1,4 @@
-import { splitMessage, createPaginationComponents } from './pagination.js';
+import { splitMessage, createPaginationComponents } from '../pagination.js';
 
 // Test 1: Short message (no pagination needed)
 console.log('Test 1: Short message');

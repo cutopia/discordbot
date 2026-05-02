@@ -33,7 +33,7 @@ I've successfully implemented a complete **Retrieval-Augmented Generation (RAG)*
 - `RAG_SETUP_CHECKLIST.md` - Setup verification checklist
 
 ### 5. Testing & Verification
-- `test-rag.js` - Test script to verify RAG functionality
+- `tests/test-rag.js` - Test script to verify RAG functionality
 - `verify-setup.js` - Automated setup verification script
 
 ---
@@ -61,7 +61,7 @@ npm run register
 
 ### Step 4: Test RAG Functionality
 ```bash
-node test-rag.js
+node tests/test-rag.js
 ```
 
 ### Step 5: Start the Bot
@@ -135,7 +135,7 @@ project/
 ├── app.js                    # Main bot file (updated with RAG commands)
 ├── chatbot.js               # Chat processing with RAG integration
 ├── rag.js                   # ✨ NEW: Core RAG functionality module
-├── test-rag.js              # ✨ NEW: Test script for RAG
+├── tests/test-rag.js              # ✨ NEW: Test script for RAG
 ├── verify-setup.js          # ✨ NEW: Setup verification script
 ├── commands.js              # Slash command definitions (updated)
 ├── package.json             # Dependencies (updated with RAG packages)
@@ -179,7 +179,7 @@ Run these commands to verify everything is working:
 
 ```bash
 # 1. Verify file structure
-ls -la rag.js test-rag.js verify-setup.js
+ls -la rag.js tests/test-rag.js verify-setup.js
 
 # 2. Check PDF files exist
 ls ragsourcebooks/*.pdf
@@ -191,7 +191,7 @@ npm install
 node verify-setup.js
 
 # 5. Test RAG functionality
-node test-rag.js
+node tests/test-rag.js
 ```
 
 ---

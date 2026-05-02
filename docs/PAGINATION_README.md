@@ -28,7 +28,7 @@ This implementation adds automatic message pagination to your Discord bot with e
 5. **`IMPLEMENTATION_SUMMARY.md`** - Technical implementation details
 
 ### Testing
-6. **`test-pagination.js`** - Test suite for pagination functionality
+6. **`tests/test-pagination.js`** - Test suite for pagination functionality
 
 ## 🚀 Quick Start
 
@@ -109,7 +109,7 @@ Each paginated message includes three buttons:
 Run the test suite:
 
 ```bash
-node test-pagination.js
+node tests/test-pagination.js
 ```
 
 Expected output:
@@ -260,4 +260,4 @@ Same as main project.
 
 ---
 
-**Need help?** Check the documentation files or review the test examples in `test-pagination.js`.
+**Need help?** Check the documentation files or review the test examples in `tests/test-pagination.js`.

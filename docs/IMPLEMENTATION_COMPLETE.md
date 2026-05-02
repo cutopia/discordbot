@@ -28,7 +28,7 @@ The RAG (Retrieval-Augmented Generation) functionality has been successfully imp
 
 ### New Files (7)
 1. **rag.js** - Core RAG functionality module
-2. **test-rag.js** - Test script for RAG functionality
+2. **tests/test-rag.js** - Test script for RAG functionality
 3. **RAG_FEATURE.md** - Comprehensive feature documentation
 4. **RAG_INSTALLATION.md** - Step-by-step installation guide
 5. **RAG_QUICK_REFERENCE.md** - Quick reference for users
@@ -82,7 +82,7 @@ npm run register
 
 ### 5. Test RAG Functionality
 ```bash
-node test-rag.js
+node tests/test-rag.js
 ```
 
 ### 6. Start the Bot
@@ -158,7 +158,7 @@ const docs = await queryVectorStore(sourceName, query, 5); // k=5 instead of def
 
 Run the test script to verify everything works:
 ```bash
-node test-rag.js
+node tests/test-rag.js
 ```
 
 Expected output shows successful PDF extraction, vector store creation, and query functionality.
@@ -175,7 +175,7 @@ Expected output shows successful PDF extraction, vector store creation, and quer
 1. ✅ Install dependencies: `npm install`
 2. ✅ Configure environment variables in `.env`
 3. ✅ Register slash commands: `npm run register`
-4. ✅ Test RAG functionality: `node test-rag.js`
+4. ✅ Test RAG functionality: `node tests/test-rag.js`
 5. ✅ Start the bot: `npm start`
 6. ✅ Try it out in Discord!
 

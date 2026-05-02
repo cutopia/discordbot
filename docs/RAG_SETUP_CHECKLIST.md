@@ -64,7 +64,7 @@ Expected output: All checks should pass ✅
 Test the PDF processing and vector store creation:
 
 ```bash
-node test-rag.js
+node tests/test-rag.js
 ```
 
 This will:
@@ -102,7 +102,7 @@ Once the bot is running:
 
 ### Core Files Created:
 - `rag.js` - RAG functionality module (197 lines)
-- `test-rag.js` - Test script for RAG (74 lines)
+- `tests/test-rag.js` - Test script for RAG (74 lines)
 - `verify-setup.js` - Setup verification script (151 lines)
 
 ### Documentation Created:
@@ -126,7 +126,7 @@ Run these commands to verify everything is working:
 
 ```bash
 # 1. Check file structure
-ls -la rag.js test-rag.js verify-setup.js
+ls -la rag.js tests/test-rag.js verify-setup.js
 
 # 2. Verify PDF files exist
 ls ragsourcebooks/*.pdf
@@ -138,7 +138,7 @@ npm install
 node verify-setup.js
 
 # 5. Test RAG functionality
-node test-rag.js
+node tests/test-rag.js
 ```
 
 ## 🔧 Troubleshooting

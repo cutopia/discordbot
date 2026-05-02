@@ -82,7 +82,7 @@ Commands installed globally. Add GUILD_ID to .env for server-specific installati
 Run the test script to verify everything is working:
 
 ```bash
-node test-rag.js
+node tests/test-rag.js
 ```
 
 Expected output:

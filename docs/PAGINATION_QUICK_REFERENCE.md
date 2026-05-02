@@ -149,7 +149,7 @@ if (chunks.length > 1) {
 
 ### Run Tests:
 ```bash
-node test-pagination.js
+node tests/tests/test-pagination.js
 ```
 
 ### Expected Output:
@@ -200,7 +200,7 @@ node test-pagination.js
 ```
 project/
 ├── pagination.js          # Core implementation
-├── test-pagination.js     # Test suite
+├── tests/test-pagination.js     # Test suite
 ├── app.js                 # Main application (modified)
 ├── utils.js               # Utility functions
 ├── PAGINATION_README.md   # Quick start guide
@@ -317,7 +317,7 @@ setInterval(() => {
 
 ```bash
 # Run tests
-node test-pagination.js
+node tests/tests/test-pagination.js
 
 # Start app
 node app.js
@@ -336,7 +336,7 @@ paginationStore.clear();
 - **Documentation**: See `PAGINATION_README.md`
 - **API Reference**: See `PAGINATION_API_REFERENCE.md`
 - **Flow Diagrams**: See `PAGINATION_FLOW_DIAGRAM.md`
-- **Tests**: See `test-pagination.js`
+- **Tests**: See `tests/test-pagination.js`
 
 ---
 

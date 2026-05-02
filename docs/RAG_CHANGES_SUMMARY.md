@@ -145,7 +145,7 @@ Document 3 (score: 29%): ADVERSARIES, LEGENDARY ADVERSARIES...
 1. **RAG_FIX_SUMMARY.md** - Technical details of fixes
 2. **RAG_USAGE_GUIDE.md** - User guide for RAG functionality
 3. **verify-rag-improvements.js** - Verification script
-4. **test-complete-chat-flow.js** - End-to-end test
+4. **tests/tests/test-complete-chat-flow.js** - End-to-end test
 
 ## Testing
 
@@ -155,10 +155,10 @@ Document 3 (score: 29%): ADVERSARIES, LEGENDARY ADVERSARIES...
 node ./verify-rag-improvements.js
 
 # Run complete chat flow test
-node ./test-complete-chat-flow.js
+node tests/tests/tests/test-complete-chat-flow.js
 
 # Run debug RAG test
-node ./test-rag-debug.js
+node tests/tests/test-rag-debug.js
 ```
 
 ### Manual Testing

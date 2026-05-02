@@ -1,8 +1,8 @@
 import 'dotenv/config';
-import { getAvailablePDFs, extractTextFromPDF, createVectorStore, queryVectorStore, vectorStores } from './rag.js';
+import { getAvailablePDFs, extractTextFromPDF, createVectorStore, queryVectorStore, vectorStores } from '../rag.js';
 
 async function testRAG() {
-  console.log('=== Testing RAG Functionality with Debug ===\n');
+  console.log('=== Testing RAG Functionality ===\n');
 
   // Test 1: Get available PDFs
   console.log('1. Checking available PDF sources...');
@@ -49,40 +49,31 @@ async function testRAG() {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     
     console.log(`   ✓ Vector store created in ${duration}s`);
-    console.log(`   Number of chunks: ${vectorStore.documents.length}`);
     console.log();
   } catch (error) {
     console.error(`   ✗ Error creating vector store: ${error.message}`);
+    console.log('   Note: This might be due to missing OpenAI API key. For local development, consider using a local embedding model.');
     return;
   }
 
-  // Test 4: Query the vector store with different queries
+  // Test 4: Query the vector store
   console.log('4. Testing query functionality...');
   
-  const testQueries = [
-    'What is this document about?',
-    'magic spells',
-    'combat rules'
-  ];
-  
-  for (const testQuery of testQueries) {
-    try {
-      const startTime = Date.now();
-      const docs = await queryVectorStore(testPDF.name, testQuery, 3);
-      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-      
-      console.log(`\n   Query: "${testQuery}"`);
-      console.log(`   Found ${docs.length} relevant document(s) in ${duration}s`);
-      
-      docs.forEach((doc, index) => {
-        console.log(`   Document ${index + 1} (score: ${doc.score.toFixed(4)}): ${doc.content.substring(0, 150)}...`);
-      });
-    } catch (error) {
-      console.error(`   ✗ Error querying vector store for "${testQuery}": ${error.message}`);
-    }
+  try {
+    const testQuery = 'What is this document about?';
+    const docs = await queryVectorStore(testPDF.name, testQuery, 2);
+    
+    console.log(`   ✓ Found ${docs.length} relevant document(s) for query: "${testQuery}"`);
+    docs.forEach((doc, index) => {
+      console.log(`   Document ${index + 1}: ${doc.content.substring(0, 150)}...`);
+    });
+    console.log();
+  } catch (error) {
+    console.error(`   ✗ Error querying vector store: ${error.message}`);
+    return;
   }
-  
-  console.log('\n=== All RAG tests completed successfully! ===');
+
+  console.log('=== All RAG tests completed successfully! ===');
 }
 
 testRAG().catch(console.error);

@@ -8,7 +8,7 @@ import {
   getContextForQuery,
   formatQueryWithPrompt,
   clearAllVectorStores
-} from './rag.js';
+} from '../rag.js';
 
 async function testCompleteChatFlow() {
   console.log('=== Complete Chat Flow Test with RAG ===\n');

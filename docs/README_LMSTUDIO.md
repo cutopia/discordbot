@@ -46,7 +46,7 @@ Place your PDF files in the `ragsourcebooks/` directory:
 ### 5. Test Connection
 ```bash
 npm run test-lmstudio
-node test-rag.js
+node tests/tests/test-rag.js
 ```
 
 ### 6. Register Commands & Start
@@ -75,7 +75,7 @@ The bot will remember context within each channel for natural conversations!
 - `CHANGES_SUMMARY.md` - Technical changes overview
 
 ### Testing
-- `test-lmstudio.js` - Verify LM Studio connection
+- `tests/tests/test-lmstudio.js` - Verify LM Studio connection
 
 ## Configuration Options
 

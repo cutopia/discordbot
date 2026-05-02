@@ -408,6 +408,6 @@ app.post('/interactions', async (req, res) => {
 
 For issues or questions:
 1. Check the troubleshooting section above
-2. Review test-pagination.js for usage examples
+2. Review tests/test-pagination.js for usage examples
 3. Examine app.js integration points
 4. Check Discord API documentation for component types

@@ -144,7 +144,7 @@ Model sees ONLY RAG context → uses PDF content correctly
 | `chatbot.js` | Clear history on RAG source set, use empty history for RAG queries |
 | `prompt.txt` | Enhanced instructions to prioritize RAG context |
 | `RAG_HISTORY_FIX.md` | Detailed analysis (new) |
-| `test-rag-history-fix.js` | Test script (new) |
+| `tests/test-rag-history-fix.js` | Test script (new) |
 
 ## Summary
 

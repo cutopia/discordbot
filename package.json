@@ -12,8 +12,8 @@
     "start": "node app.js",
     "register": "node commands.js",
     "dev": "nodemon app.js",
-    "test-lmstudio": "node test-lmstudio.js",
-    "test-rag": "node test-rag.js"
+    "test-lmstudio": "node tests/test-lmstudio.js",
+    "test-rag": "node tests/test-rag.js"
   },
   "author": "Shay DeWael",
   "license": "MIT",
