@@ -1,5 +1,8 @@
 # AGENTS.md
 
+## Project Structure Policy
+All generated documentation should be placed in the docs directory.
+
 ## Model Usage Policy
 
 ### Non-Local Models Prohibited
