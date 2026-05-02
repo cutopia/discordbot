@@ -256,10 +256,17 @@ class SimpleVectorStore {
       });
     }
     
-    // Sort by similarity (highest first) and take top k
+    // Sort by similarity (highest first)
     similarities.sort((a, b) => b.score - a.score);
     
-    return similarities.slice(0, k).map(item => ({
+    // Apply minimum relevance threshold to filter out irrelevant results
+    const minRelevanceThreshold = 0.25;
+    const relevantResults = similarities.filter(item => item.score >= minRelevanceThreshold);
+    
+    // If no results meet the threshold, return top k anyway (better than nothing)
+    const resultsToReturn = relevantResults.length > 0 ? relevantResults : similarities.slice(0, k);
+    
+    return resultsToReturn.slice(0, k).map(item => ({
       pageContent: typeof item.document === 'string' 
         ? item.document 
         : item.document.pageContent || '',
@@ -418,12 +425,24 @@ export async function extractTextFromPDF(filePath) {
  */
 export async function createVectorStore(sourceName, text) {
   try {
+    // Use smaller chunk sizes for better retrieval granularity (optimal for RAG)
     const textSplitter = new RecursiveCharacterTextSplitter({
-      chunkSize: 1000,
-      chunkOverlap: 200,
+      chunkSize: 384,
+      chunkOverlap: 76,
     });
     
+    console.log(`Splitting ${sourceName} into chunks...`);
     const splits = await textSplitter.splitText(text);
+    console.log(`Created ${splits.length} chunks from ${sourceName}`);
+    
+    // Verify we have reasonable chunk sizes
+    const avgChunkSize = splits.reduce((sum, chunk) => sum + chunk.length, 0) / splits.length;
+    console.log(`Average chunk size: ${Math.round(avgChunkSize)} characters`);
+    
+    if (splits.length === 0) {
+      throw new Error('No chunks were created from the document');
+    }
+    
     const embeddings = new LocalEmbeddings();
     
     const vectorStore = await SimpleVectorStore.fromDocuments(
@@ -434,6 +453,7 @@ export async function createVectorStore(sourceName, text) {
       embeddings
     );
     
+    console.log(`Successfully created vector store with ${vectorStore.documents.length} documents`);
     return vectorStore;
   } catch (error) {
     console.error(`Error creating vector store for ${sourceName}:`, error);
@@ -479,7 +499,20 @@ export async function queryVectorStore(sourceName, query, k = 3) {
     throw new Error(`No vector store found for source: ${sourceName}`);
   }
   
+  console.log(`Querying vector store "${sourceName}" with "${query.substring(0, 50)}..." (k=${k})`);
+  
   const docs = await vectorStore.similaritySearch(query, k);
+  
+  // Log relevance scores for debugging
+  if (docs.length > 0) {
+    console.log('Retrieved documents:');
+    docs.forEach((doc, i) => {
+      const contentLength = doc.content ? doc.content.length : (doc.pageContent ? doc.pageContent.length : 0);
+      console.log(`  ${i + 1}. Score: ${Math.round(doc.score * 100)}%, Length: ${contentLength} chars`);
+    });
+  } else {
+    console.log('No documents retrieved from vector store');
+  }
   
   return docs.map(doc => ({
     content: doc.pageContent,
@@ -499,11 +532,18 @@ export async function getContextForQuery(sourceName, query, k = 3) {
       return 'No relevant information found in the knowledge base.';
     }
     
+    // Format context with relevance scores for better AI understanding
     const contextParts = docs.map((doc, index) => {
-      return `Context ${index + 1}:\n${doc.content}\n`;
+      const relevanceScore = Math.round(doc.score * 100);
+      return `Context ${index + 1} (Relevance: ${relevanceScore}%):\n${doc.content}\n`;
     });
     
-    return contextParts.join('\n---\n');
+    // Add metadata about the retrieval for the AI
+    const contextInfo = `Retrieved ${docs.length} relevant context chunk(s) from knowledge base.\n` +
+                       `Query: "${query}"\n\n` +
+                       contextParts.join('\n---\n');
+    
+    return contextInfo;
   } catch (error) {
     console.error('Error getting context:', error);
     return 'Error retrieving context from knowledge base.';
