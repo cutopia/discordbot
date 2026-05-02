@@ -12,6 +12,25 @@ We are currently hosting **Qwen3** on localhost with LM Studio.
 
 > ⚠️ **Important**: You must make other required models available by documenting them with suggestions for local hosting.
 
+## Embedding Models Policy
+
+### Local Embeddings Required
+
+All embedding models (used for RAG, similarity search, etc.) must also be self-hosted locally. The following external dependencies are prohibited:
+
+- `@langchain/openai` - Uses OpenAI API
+- Any cloud-based embedding service
+
+### Supported Local Embedding Solutions
+
+| Solution | Model | Port | Storage |
+|----------|-------|------|---------|
+| LM Studio | all-MiniLM-L6-v2 | 1234 | 500MB |
+| Ollama | nomic-embed-text | 11434 | 400MB |
+| transformers.js | all-MiniLM-L6-v2 | N/A (browser) | 1GB |
+
+See `LOCAL_EMBEDDINGS.md` for detailed setup instructions.
+
 ### Hosting Requirements for Additional Models
 
 For any additional models we need, always:
