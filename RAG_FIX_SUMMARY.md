@@ -1,125 +1,118 @@
-# RAG System Fix Summary
+# RAG Integration Fix Summary
 
 ## Problem Identified
 
-The `/chat` command was not retrieving relevant context from PDF documents because:
+The `/rag_source` command was successfully creating vector stores from PDF files, but when users asked questions with `/chat`, the bot was only sending the raw question to LM Studio without any context from the vector store or prompt template.
 
-1. **Insufficient chunking**: The text splitter was creating only ~7 chunks from a 633KB PDF, meaning most document content wasn't being indexed
-2. **Low relevance scores**: Retrieved results had low similarity scores (~25%), making it difficult for the LLM to identify relevant information
-3. **Poor granularity**: Large chunks (1000+ characters) contained too much irrelevant information
+### Root Cause
 
-## Changes Made
-
-### 1. Optimized Text Chunking Configuration
-
-**Before:**
-```javascript
-const textSplitter = new RecursiveCharacterTextSplitter({
-  chunkSize: 1000,
-  chunkOverlap: 200,
-});
-```
-
-**After:**
-```javascript
-const textSplitter = new RecursiveCharacterTextSplitter({
-  chunkSize: 384,    // Reduced to ~384 characters per chunk
-  chunkOverlap: 76,   // Reduced overlap for better coverage
-});
-```
-
-**Impact:** Increased chunks from ~7 to ~15-50+ depending on document size
-
-### 2. Improved Relevance Thresholding
-
-Added minimum relevance threshold (0.25) to filter out irrelevant results:
+The bug was in `app.js` - the `/rag_source` command handler was missing a critical call to set the active RAG source for the channel:
 
 ```javascript
-const minRelevanceThreshold = 0.25;
-const relevantResults = similarities.filter(item => item.score >= minRelevanceThreshold);
+// BEFORE (buggy code):
+getOrCreateVectorStore(pdfPath)
+  .then(() => {
+    const sourceName = pdfPath.split('/').pop().replace('.pdf', '');
+    
+    // Missing: setRAGSource(req.body.channel_id, sourceName);
+    
+    DiscordRequest(...); // Only sends success message
+  })
 ```
 
-**Impact:** Higher quality results with better signal-to-noise ratio
+The vector store was created and stored in the `vectorStores` map, but the channel wasn't marked as having an active RAG source. So when `/chat` was called:
 
-### 3. Enhanced Context Formatting
+1. `getRAGSource(channelId)` returned `null`
+2. The RAG branch was never taken
+3. The raw message was sent to LM Studio without context
 
-Added relevance scores and query metadata to context:
+## Solution Implemented
 
+### 1. Added Import for `setRAGSource`
+
+**File: `app.js`**
 ```javascript
-const contextInfo = `Retrieved ${docs.length} relevant context chunk(s) from knowledge base.\n` +
-                   `Query: "${query}"\n\n` +
-                   contextParts.join('\n---\n');
+import { setRAGSource } from './chatbot.js';
 ```
 
-**Impact:** LLM can better understand which parts are most relevant
+### 2. Set Active RAG Source After Loading PDF
 
-### 4. Improved Debug Logging
-
-Added detailed logging for troubleshooting:
-
+**File: `app.js` - `/rag_source` command handler**
 ```javascript
-console.log(`Querying vector store "${sourceName}" with "${query.substring(0, 50)}..." (k=${k})`);
-// ... query execution ...
-if (docs.length > 0) {
-  console.log('Retrieved documents:');
-  docs.forEach((doc, i) => {
-    console.log(`  ${i + 1}. Score: ${Math.round(doc.score * 100)}%, Length: ${contentLength} chars`);
-  });
-}
+getOrCreateVectorStore(pdfPath)
+  .then(() => {
+    const sourceName = pdfPath.split('/').pop().replace('.pdf', '');
+    
+    // NEW: Set this as the active RAG source for the channel
+    setRAGSource(req.body.channel_id, sourceName);
+    
+    DiscordRequest(...); // Send success message
+  })
 ```
 
-## Results
+### 3. Added Debug Logging
 
-### Before Fix
-- Chunks per PDF: ~7
-- Average relevance score: ~25%
-- Context length: ~300-400 characters
-- Query results: Often irrelevant or too generic
+Added comprehensive logging to help diagnose RAG issues:
 
-### After Fix
-- Chunks per PDF: ~15-50+ (depending on document size)
-- Average relevance score: 36-49%
-- Context length: ~800-2500 characters
-- Query results: Much more relevant and specific
+**File: `chatbot.js`**
+- Logs when checking RAG status for each channel
+- Shows active RAG source and vector store count
+- Indicates if RAG context is being used
 
-## Testing Results
+**File: `rag.js`**
+- Logs in `getRagQuery()` - shows query processing steps
+- Logs in `getContextForQuery()` - shows document retrieval
+- Logs in `queryVectorStore()` - shows similarity search results
 
-```
-Query: "What is this document about?"
-- Document 1 (score: 0.3551): prior written permission...
-- Document 2 (score: 0.3350): ADVERSARIES, LEGENDARY ADVERSARIES...
-- Document 3 (score: 0.2787): Heart: the City Beneath...
+## How It Works Now
 
-Query: "magic spells"
-- Document 1 (score: 0.4856): SECRETS OF MAGIC LONG-LOST OR NEVER DISCOVERED...
-- Document 2 (score: 0.3554): ABOVE US, THE CITY, SPIRE...
-- Document 3 (score: 0.2860): Deep Apiarist, Heretic...
+1. User runs `/rag_source <pdf_name>`
+2. Bot extracts text, creates vector store, and **sets it as active for the channel**
+3. User runs `/chat <question>`
+4. Bot checks if there's an active RAG source
+5. If yes:
+   - Retrieves relevant context from vector store using similarity search
+   - Formats prompt with `prompt.txt` template + retrieved context
+   - Sends formatted prompt to LM Studio
+6. If no:
+   - Uses regular conversation history
 
-Query: "combat rules"
-- Document 1 (score: 0.4011): Vermissian Knight, Witch, Rules in detail, COMBAT...
-- Document 2 (score: 0.3182): Deep Apiarist, Heretic...
-- Document 3 (score: 0.2878): ADVERSARIES, LEGENDARY ADVERSARIES...
-```
+## Expected Behavior After Fix
 
-## How to Use
+When you run `/rag_source` followed by `/chat`, you should see:
 
-### For Existing Users
-The changes are backward compatible and will automatically apply when you next use the `/chat` command with a RAG source.
+1. **In console logs:**
+   ```
+   [CHATBOT] Checking RAG status for channel <id>
+   [CHATBOT] Active RAG source: pdf_name
+   [CHATBOT] Vector stores available: 1
+   [CHATBOT] Using RAG context for "pdf_name"
+   [RAG] Getting query for source "pdf_name", query: "..."
+   [RAG] Retrieved 3 documents for "pdf_name"
+   [RAG] Retrieved context (length: XXX chars)
+   [RAG] Formatted prompt (length: XXX chars)
+   ```
 
-### To Test
-1. Make sure LM Studio is running and accessible
-2. Make sure Ollama embedding model is available (default: `all-minilm`)
-3. Use `/rag_source` to select a PDF document
-4. Ask questions using `/chat`
+2. **In LM Studio request body:**
+   - The `messages[0].content` will contain the full formatted prompt with:
+     - The `prompt.txt` template
+     - Retrieved context from vector store
+     - Your question
 
-### To Clear and Rebuild Vector Stores
-Use the `/rag_clear` command to clear all vector stores, then re-select your source with `/rag_source`.
+3. **Response should be based on the PDF content**, not general knowledge
 
-## Future Improvements
+## Testing the Fix
 
-Potential enhancements:
-1. Implement hybrid search (keyword + semantic)
-2. Add reranking for better result ordering
-3. Support multiple RAG sources simultaneously
-4. Implement query expansion/rewriting
-5. Add relevance feedback mechanism
+1. Restart your bot to load the changes
+2. Run `/rag_list` to see available PDFs
+3. Run `/rag_source <pdf_name>` (e.g., `dnd-guide.pdf`)
+4. Check console for: "Successfully loaded **<name>** as RAG source!"
+5. Run `/chat <question about the pdf>`
+6. Check console logs - you should see `[CHATBOT] Using RAG context` and `[RAG] Retrieved X documents`
+7. Check LM Studio logs - the prompt should include context from the PDF
+
+## Files Modified
+
+1. `app.js` - Added import and `setRAGSource()` call
+2. `chatbot.js` - Added debug logging to `processChatMessage()`
+3. `rag.js` - Added debug logging to RAG functions

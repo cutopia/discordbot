@@ -21,6 +21,7 @@ import {
   handlePaginationInteraction,
   paginationStore
 } from './pagination.js';
+import { setRAGSource } from './chatbot.js';
 
 // Create an express app
 const app = express();
@@ -314,6 +315,9 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         getOrCreateVectorStore(pdfPath)
           .then(() => {
             const sourceName = pdfPath.split('/').pop().replace('.pdf', '');
+            
+            // Set this as the active RAG source for the channel
+            setRAGSource(req.body.channel_id, sourceName);
             
             DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
               method: 'PATCH',

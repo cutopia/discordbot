@@ -46,6 +46,8 @@ function addToHistory(channelId, role, content) {
  */
 export function setRAGSource(channelId, sourceName) {
   activeRAGSources.set(channelId, sourceName);
+  // Clear conversation history when switching knowledge bases to avoid contamination
+  conversationHistory.delete(channelId);
 }
 
 /**
@@ -74,31 +76,48 @@ export function clearChannelHistory(channelId) {
  */
 export async function processChatMessage(message, channelId) {
   try {
-    // Get conversation history for this channel
-    const history = getChannelHistory(channelId);
-    
     // Check if there's an active RAG source for this channel
     const ragSource = getRAGSource(channelId);
-    let enhancedMessage = message;
+    
+    console.log(`[CHATBOT] Checking RAG status for channel ${channelId}`);
+    console.log(`[CHATBOT] Active RAG source: ${ragSource || 'none'}`);
+    console.log(`[CHATBOT] Vector stores available: ${vectorStores.size}`);
     
     if (ragSource && vectorStores.has(ragSource)) {
+      console.log(`[CHATBOT] Using RAG context for "${ragSource}"`);
+      
+      // For RAG queries, use empty history to prevent contamination from previous generic responses
+      let enhancedMessage = message;
+      
       try {
         // Get formatted RAG query using the prompt template from prompt.txt
         enhancedMessage = await getRagQuery(ragSource, message, 3);
+        console.log(`[CHATBOT] RAG query generated (length: ${enhancedMessage.length} chars)`);
+        console.log(`[CHATBOT] First 200 chars of RAG prompt: ${enhancedMessage.substring(0, 200)}...`);
       } catch (error) {
         console.error('Error getting RAG query:', error);
         // Continue with original message if RAG fails
       }
+      
+      // Use empty history for RAG queries to avoid contamination
+      const response = await getLMStudioResponse(enhancedMessage, []);
+      
+      // Add only this exchange to history (not the full conversation)
+      addToHistory(channelId, 'user', message);
+      addToHistory(channelId, 'assistant', response);
+      
+      return response;
+    } else {
+      // Non-RAG queries use full conversation history
+      const history = getChannelHistory(channelId);
+      const response = await getLMStudioResponse(message, history);
+      
+      // Add messages to history
+      addToHistory(channelId, 'user', message);
+      addToHistory(channelId, 'assistant', response);
+      
+      return response;
     }
-    
-    // Get response from LM Studio
-    const response = await getLMStudioResponse(enhancedMessage, history);
-    
-    // Add messages to history
-    addToHistory(channelId, 'user', message);
-    addToHistory(channelId, 'assistant', response);
-    
-    return response;
   } catch (error) {
     console.error('Error processing chat message:', error);
     return `Sorry, I encountered an error: ${error.message}. Please check that LM Studio is running and the API is accessible.`;

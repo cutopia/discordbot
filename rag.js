@@ -499,19 +499,19 @@ export async function queryVectorStore(sourceName, query, k = 3) {
     throw new Error(`No vector store found for source: ${sourceName}`);
   }
   
-  console.log(`Querying vector store "${sourceName}" with "${query.substring(0, 50)}..." (k=${k})`);
+  console.log(`[RAG] Querying vector store "${sourceName}" with "${query.substring(0, 50)}..." (k=${k})`);
   
   const docs = await vectorStore.similaritySearch(query, k);
   
   // Log relevance scores for debugging
   if (docs.length > 0) {
-    console.log('Retrieved documents:');
+    console.log('[RAG] Retrieved documents:');
     docs.forEach((doc, i) => {
       const contentLength = doc.content ? doc.content.length : (doc.pageContent ? doc.pageContent.length : 0);
       console.log(`  ${i + 1}. Score: ${Math.round(doc.score * 100)}%, Length: ${contentLength} chars`);
     });
   } else {
-    console.log('No documents retrieved from vector store');
+    console.log('[RAG] No documents retrieved from vector store');
   }
   
   return docs.map(doc => ({
@@ -528,7 +528,10 @@ export async function getContextForQuery(sourceName, query, k = 3) {
   try {
     const docs = await queryVectorStore(sourceName, query, k);
     
+    console.log(`[RAG] Retrieved ${docs.length} documents for "${sourceName}"`);
+    
     if (docs.length === 0) {
+      console.warn('[RAG] No documents retrieved from vector store');
       return 'No relevant information found in the knowledge base.';
     }
     
@@ -543,9 +546,11 @@ export async function getContextForQuery(sourceName, query, k = 3) {
                        `Query: "${query}"\n\n` +
                        contextParts.join('\n---\n');
     
+    console.log(`[RAG] Context info generated (length: ${contextInfo.length} chars)`);
+    
     return contextInfo;
   } catch (error) {
-    console.error('Error getting context:', error);
+    console.error('[RAG] Error getting context:', error);
     return 'Error retrieving context from knowledge base.';
   }
 }
@@ -580,10 +585,17 @@ export function formatQueryWithPrompt(sourceName, query, context) {
  */
 export async function getRagQuery(sourceName, query, k = 3) {
   try {
+    console.log(`[RAG] Getting query for source "${sourceName}", query: "${query.substring(0, 50)}..."`);
+    
     const context = await getContextForQuery(sourceName, query, k);
-    return formatQueryWithPrompt(sourceName, query, context);
+    console.log(`[RAG] Retrieved context (length: ${context.length} chars)`);
+    
+    const formatted = formatQueryWithPrompt(sourceName, query, context);
+    console.log(`[RAG] Formatted prompt (length: ${formatted.length} chars)`);
+    
+    return formatted;
   } catch (error) {
-    console.error('Error getting RAG query:', error);
+    console.error('[RAG] Error getting RAG query:', error);
     return `Question: ${query}\n\nNote: Could not retrieve context from knowledge base.`;
   }
 }
