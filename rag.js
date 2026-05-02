@@ -66,17 +66,37 @@ class LocalEmbeddings {
   async embedDocuments(texts) {
     const embeddings = [];
     
-    for (const text of texts) {
-      const content = typeof text === 'string' ? text : text.pageContent || '';
-      const cacheKey = content;
+    // Process with small batch size to avoid overwhelming the API
+    const batchSize = 5;
+    
+    for (let i = 0; i < texts.length; i += batchSize) {
+      const batch = texts.slice(i, i + batchSize);
       
-      if (this.embeddingCache.has(cacheKey)) {
-        embeddings.push(this.embeddingCache.get(cacheKey));
-      } else {
-        // Generate embedding using Ollama's embeddings API
-        const embedding = await this.generateOllamaEmbedding(content);
-        this.embeddingCache.set(cacheKey, embedding);
-        embeddings.push(embedding);
+      // Add a small delay between batches to avoid rate limiting
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      for (const text of batch) {
+        const content = typeof text === 'string' ? text : text.pageContent || '';
+        const cacheKey = content;
+        
+        if (this.embeddingCache.has(cacheKey)) {
+          embeddings.push(this.embeddingCache.get(cacheKey));
+        } else {
+          // Generate embedding using Ollama's embeddings API
+          try {
+            const embedding = await this.generateOllamaEmbedding(content);
+            this.embeddingCache.set(cacheKey, embedding);
+            embeddings.push(embedding);
+          } catch (error) {
+            console.error(`Error in batch embedding for text "${content.substring(0, 50)}...":`, error.message);
+            // Use fallback embedding
+            const fallback = this.generateHashEmbedding(content);
+            this.embeddingCache.set(cacheKey, fallback);
+            embeddings.push(fallback);
+          }
+        }
       }
     }
     
@@ -209,11 +229,122 @@ class SimpleVectorStore {
   async similaritySearch(query, k = 4) {
     if (this.documents.length === 0) return [];
     
-    return this.documents.slice(0, k).map(doc => ({
-      pageContent: typeof doc === 'string' ? doc : doc.pageContent || '',
-      metadata: doc.metadata || {},
-      score: 0
+    // Generate embedding for the query
+    let queryEmbedding;
+    try {
+      const embeddings = new LocalEmbeddings();
+      queryEmbedding = await embeddings.embedQuery(query);
+    } catch (error) {
+      console.error('Error generating query embedding:', error);
+      // Fallback to hash embedding if Ollama fails
+      queryEmbedding = this.generateHashEmbedding(query);
+    }
+    
+    // Calculate cosine similarity between query and all document embeddings
+    const similarities = [];
+    
+    for (let i = 0; i < this.documents.length; i++) {
+      const doc = this.documents[i];
+      const docEmbedding = doc.embedding || new Array(384).fill(0);
+      
+      // Calculate cosine similarity
+      const similarity = this.cosineSimilarity(queryEmbedding, docEmbedding);
+      
+      similarities.push({
+        document: doc,
+        score: similarity
+      });
+    }
+    
+    // Sort by similarity (highest first) and take top k
+    similarities.sort((a, b) => b.score - a.score);
+    
+    return similarities.slice(0, k).map(item => ({
+      pageContent: typeof item.document === 'string' 
+        ? item.document 
+        : item.document.pageContent || '',
+      metadata: item.document.metadata || {},
+      score: item.score
     }));
+  }
+  
+  /**
+   * Calculate cosine similarity between two vectors
+   * @param {number[]} vec1 - First vector
+   * @param {number[]} vec2 - Second vector
+   * @returns {number} Cosine similarity (range: [-1, 1], higher = more similar)
+   */
+  cosineSimilarity(vec1, vec2) {
+    if (vec1.length !== vec2.length) {
+      console.warn('Vector dimensions mismatch in cosine similarity');
+      // Pad or truncate to match lengths
+      const maxLength = Math.max(vec1.length, vec2.length);
+      const padded1 = new Array(maxLength).fill(0);
+      const padded2 = new Array(maxLength).fill(0);
+      
+      for (let i = 0; i < vec1.length; i++) padded1[i] = vec1[i];
+      for (let i = 0; i < vec2.length; i++) padded2[i] = vec2[i];
+      
+      return this.cosineSimilarity(padded1, padded2);
+    }
+    
+    let dotProduct = 0;
+    let magnitude1 = 0;
+    let magnitude2 = 0;
+    
+    for (let i = 0; i < vec1.length; i++) {
+      dotProduct += vec1[i] * vec2[i];
+      magnitude1 += vec1[i] * vec1[i];
+      magnitude2 += vec2[i] * vec2[i];
+    }
+    
+    magnitude1 = Math.sqrt(magnitude1);
+    magnitude2 = Math.sqrt(magnitude2);
+    
+    if (magnitude1 === 0 || magnitude2 === 0) {
+      return 0;
+    }
+    
+    return dotProduct / (magnitude1 * magnitude2);
+  }
+  
+  /**
+   * Generate a deterministic embedding vector from text content using hashing
+   * This is used as fallback when Ollama API is unavailable
+   * @param {string} text - Input text
+   * @returns {number[]} - Embedding vector (384 dimensions)
+   */
+  generateHashEmbedding(text) {
+    // Simple hash-based embedding generation for demo purposes
+    const dimensions = 384;
+    const embedding = new Array(dimensions).fill(0);
+    
+    if (!text || text.length === 0) {
+      return embedding;
+    }
+    
+    // Use a simple hashing approach to distribute values across dimensions
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      const char = text.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+      
+      // Map hash to a dimension and value
+      const dimIndex = Math.abs(hash % dimensions);
+      const value = (Math.sin(hash) + 1) / 2; // Normalize to [0, 1]
+      embedding[dimIndex] += value;
+    }
+    
+    // Normalize the embedding vector
+    const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+    if (magnitude > 0) {
+      for (let i = 0; i < dimensions; i++) {
+        embedding[i] /= magnitude;
+      }
+    }
+    
+    return embedding;
   }
 
   static async fromDocuments(docs, embeddings) {
