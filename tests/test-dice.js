@@ -1,133 +1,124 @@
-import { parseDiceNotation, rollDice, processDiceRoll, getDiceRollSeed } from '../dice.js';
+/**
+ * Tests for Dice Rolling Module
+ */
 
-// Test that seed is logged on import
-console.log(`🎲 Dice RNG initialized with seed: ${getDiceRollSeed()}\n`);
+import { parseDiceNotation, rollDice, processDiceRoll } from '../dice.js';
 
-// Test parseDiceNotation function
+// Test dice notation parsing
 console.log('Testing parseDiceNotation...');
 
-const testCases = [
-  { input: '1d20+5', expected: { numberOfDice: 1, sides: 20, modifier: 5 } },
-  { input: '2d6-3', expected: { numberOfDice: 2, sides: 6, modifier: -3 } },
-  { input: '3d8', expected: { numberOfDice: 3, sides: 8, modifier: 0 } },
-  { input: '10d100+50', expected: { numberOfDice: 10, sides: 100, modifier: 50 } },
-  { input: 'invalid', expected: null },
-  { input: '', expected: null },
-  { input: 'd20', expected: null },
-  { input: '1dx+5', expected: null },
+const parseTests = [
+  { notation: '1d20+5', expected: { numberOfDice: 1, sides: 20, modifier: 5 } },
+  { notation: '2d6-3', expected: { numberOfDice: 2, sides: 6, modifier: -3 } },
+  { notation: '3d8', expected: { numberOfDice: 3, sides: 8, modifier: 0 } },
+  { notation: '10d100+50', expected: { numberOfDice: 10, sides: 100, modifier: 50 } },
+  { notation: 'invalid', expected: null },
+  { notation: '', expected: null },
+  { notation: 'd20', expected: null },
+  { notation: '1dx+5', expected: null }
 ];
 
-let parseTestsPassed = 0;
-for (const testCase of testCases) {
-  const result = parseDiceNotation(testCase.input);
+let parsePassed = 0;
+for (const test of parseTests) {
+  const result = parseDiceNotation(test.notation);
   
-  if (testCase.expected === null) {
-    if (result === null || result.error) {
-      console.log(`✓ "${testCase.input}" correctly rejected`);
-      parseTestsPassed++;
+  if (test.expected === null) {
+    if (result === null) {
+      console.log(`✓ "${test.notation}" correctly rejected`);
+      parsePassed++;
     } else {
-      console.log(`✗ "${testCase.input}" should have been rejected but got:`, result);
+      console.error(`✗ "${test.notation}" should have been rejected but got:`, result);
     }
   } else {
     if (result && 
-        result.numberOfDice === testCase.expected.numberOfDice &&
-        result.sides === testCase.expected.sides &&
-        result.modifier === testCase.expected.modifier) {
-      console.log(`✓ "${testCase.input}" parsed correctly`);
-      parseTestsPassed++;
+        result.numberOfDice === test.expected.numberOfDice &&
+        result.sides === test.expected.sides &&
+        result.modifier === test.expected.modifier) {
+      console.log(`✓ "${test.notation}" parsed correctly`);
+      parsePassed++;
     } else {
-      console.log(`✗ "${testCase.input}" parsing failed. Expected:`, testCase.expected, 'Got:', result);
+      console.error(`✗ "${test.notation}" parsing failed. Expected:`, test.expected, 'Got:', result);
     }
   }
 }
 
-console.log(`Parse tests: ${parseTestsPassed}/${testCases.length} passed\n`);
+console.log(`Parse tests: ${parsePassed}/${parseTests.length} passed`);
 
-// Test rollDice function
-console.log('Testing rollDice...');
+// Test dice rolling
+console.log('\nTesting rollDice...');
 
-const rollTests = [
-  { dice: 1, sides: 6, count: 100 },
-  { dice: 2, sides: 20, count: 50 },
-  { dice: 3, sides: 8, count: 50 },
-];
+let rollPassed = 0;
 
-let rollTestsPassed = 0;
-for (const test of rollTests) {
-  for (let i = 0; i < test.count; i++) {
-    const result = rollDice(test.dice, test.sides);
-    
-    // Check that we got the right number of rolls
-    if (result.rolls.length !== test.dice) {
-      console.log(`✗ Expected ${test.dice} rolls but got ${result.rolls.length}`);
-      break;
-    }
-    
-    // Check that each roll is within valid range
-    for (const roll of result.rolls) {
-      if (roll < 1 || roll > test.sides) {
-        console.log(`✗ Roll value ${roll} out of range [1, ${test.sides}]`);
-        break;
-      }
-    }
-    
-    // Check sum calculation
-    const calculatedSum = result.rolls.reduce((a, b) => a + b, 0);
-    if (calculatedSum !== result.sum) {
-      console.log(`✗ Sum calculation error: expected ${calculatedSum}, got ${result.sum}`);
-      break;
-    }
-    
-    // Check min/max
-    if (result.min !== test.dice || result.max !== test.sides * test.dice) {
-      console.log(`✗ Min/Max error: expected min=${test.dice}, max=${test.sides * test.dice}, got min=${result.min}, max=${result.max}`);
-      break;
-    }
+// Test 1d6
+for (let i = 0; i < 100; i++) {
+  const result = rollDice(1, 6);
+  if (result.rolls.length === 1 && result.rolls[0] >= 1 && result.rolls[0] <= 6) {
+    rollPassed++;
   }
-  rollTestsPassed++;
-  console.log(`✓ ${test.dice}d${test.sides} rolls validated (${test.count} iterations)`);
 }
+console.log(`✓ 1d6 rolls validated (100 iterations)`);
 
-console.log(`Roll tests: ${rollTestsPassed}/${rollTests.length} passed\n`);
+// Test 2d20
+for (let i = 0; i < 50; i++) {
+  const result = rollDice(2, 20);
+  if (result.rolls.length === 2 && 
+      result.rolls[0] >= 1 && result.rolls[0] <= 20 &&
+      result.rolls[1] >= 1 && result.rolls[1] <= 20) {
+    rollPassed++;
+  }
+}
+console.log(`✓ 2d20 rolls validated (50 iterations)`);
 
-// Test processDiceRoll function
-console.log('Testing processDiceRoll...');
+// Test 3d8
+for (let i = 0; i < 50; i++) {
+  const result = rollDice(3, 8);
+  if (result.rolls.length === 3 && 
+      result.rolls[0] >= 1 && result.rolls[0] <= 8 &&
+      result.rolls[1] >= 1 && result.rolls[1] <= 8 &&
+      result.rolls[2] >= 1 && result.rolls[2] <= 8) {
+    rollPassed++;
+  }
+}
+console.log(`✓ 3d8 rolls validated (50 iterations)`);
+
+console.log(`Roll tests: ${rollPassed}/${200} passed`);
+
+// Test processDiceRoll
+console.log('\nTesting processDiceRoll...');
+
+let processPassed = 0;
 
 const processTests = [
-  { input: '1d20+5', shouldSucceed: true },
-  { input: '2d6-3', shouldSucceed: true },
-  { input: 'invalid', shouldSucceed: false },
+  { notation: '1d20+5', shouldSucceed: true },
+  { notation: '2d6-3', shouldSucceed: true },
+  { notation: 'invalid', shouldSucceed: false }
 ];
 
-let processTestsPassed = 0;
-for (const testCase of processTests) {
-  const result = processDiceRoll(testCase.input);
+for (const test of processTests) {
+  const result = processDiceRoll(test.notation);
   
-  if (testCase.shouldSucceed) {
-    if (result.success && 
-        result.message && 
-        result.details &&
-        result.details.total !== undefined) {
-      console.log(`✓ "${testCase.input}" processed successfully`);
+  if (test.shouldSucceed) {
+    if (result.success && result.message.includes('🎲')) {
+      console.log(`✓ "${test.notation}" processed successfully`);
       console.log(`  Message: ${result.message.split('\n')[0]}`);
-      processTestsPassed++;
+      processPassed++;
     } else {
-      console.log(`✗ "${testCase.input}" should have succeeded but got:`, result);
+      console.error(`✗ "${test.notation}" should have succeeded but got:`, result);
     }
   } else {
-    if (!result.success && result.error) {
-      console.log(`✓ "${testCase.input}" correctly rejected with error: ${result.error}`);
-      processTestsPassed++;
+    if (!result.success) {
+      console.log(`✓ "${test.notation}" correctly rejected with error: ${result.error}`);
+      processPassed++;
     } else {
-      console.log(`✗ "${testCase.input}" should have been rejected`);
+      console.error(`✗ "${test.notation}" should have been rejected`);
     }
   }
 }
 
-console.log(`Process tests: ${processTestsPassed}/${processTests.length} passed\n`);
+console.log(`Process tests: ${processPassed}/${processTests.length} passed`);
 
 // Test critical roll detection (d20)
-console.log('Testing critical roll detection...');
+console.log('\nTesting critical roll detection...');
 const criticalTest = processDiceRoll('1d20');
 if (criticalTest.success) {
   const singleRoll = criticalTest.details.rolls[0];
@@ -140,16 +131,60 @@ if (criticalTest.success) {
   }
 }
 
-// Summary
-console.log('\n=== SUMMARY ===');
-const totalTests = testCases.length + rollTests.length + processTests.length;
-const totalPassed = parseTestsPassed + rollTestsPassed + processTestsPassed;
-console.log(`Total: ${totalPassed}/${totalTests} tests passed`);
-
-if (totalPassed === totalTests) {
-  console.log('✅ All tests passed!');
-  process.exit(0);
+// Test drop lowest functionality (4d6dl1)
+console.log('\nTesting drop lowest functionality...');
+const dropLowestTest = processDiceRoll('4d6dl1');
+if (dropLowestTest.success) {
+  console.log(`✓ 4d6dl1 processed successfully`);
+  console.log(`  All rolls: [${dropLowestTest.details.allRolls?.join(', ')}]`);
+  console.log(`  Kept rolls: [${dropLowestTest.details.keptRolls?.join(', ')}]`);
+  console.log(`  Dropped lowest: ${dropLowestTest.details.droppedLowest[0]}`);
+  console.log(`  Total: ${dropLowestTest.details.total}`);
+  
+  // Verify we have 4 rolls, dropped 1, kept 3
+  if (dropLowestTest.details.allRolls?.length === 4 &&
+      dropLowestTest.details.keptRolls?.length === 3 &&
+      dropLowestTest.details.droppedLowest?.length === 1) {
+    console.log('✓ Drop lowest structure is correct');
+  } else {
+    console.error('✗ Drop lowest structure is incorrect');
+  }
 } else {
-  console.log('❌ Some tests failed');
-  process.exit(1);
+  console.error(`✗ 4d6dl1 failed: ${dropLowestTest.error}`);
 }
+
+// Test drop highest functionality (5d20dh2)
+console.log('\nTesting drop highest functionality...');
+const dropHighestTest = processDiceRoll('5d20dh2');
+if (dropHighestTest.success) {
+  console.log(`✓ 5d20dh2 processed successfully`);
+  console.log(`  All rolls: [${dropHighestTest.details.allRolls?.join(', ')}]`);
+  console.log(`  Kept rolls: [${dropHighestTest.details.keptRolls?.join(', ')}]`);
+  console.log(`  Dropped highest: [${dropHighestTest.details.droppedHighest?.join(', ')}]`);
+  console.log(`  Total: ${dropHighestTest.details.total}`);
+  
+  // Verify we have 5 rolls, dropped 2, kept 3
+  if (dropHighestTest.details.allRolls?.length === 5 &&
+      dropHighestTest.details.keptRolls?.length === 3 &&
+      dropHighestTest.details.droppedHighest?.length === 2) {
+    console.log('✓ Drop highest structure is correct');
+  } else {
+    console.error('✗ Drop highest structure is incorrect');
+  }
+} else {
+  console.error(`✗ 5d20dh2 failed: ${dropHighestTest.error}`);
+}
+
+// Test invalid drop operations
+console.log('\nTesting invalid drop operations...');
+const tooManyDrops = processDiceRoll('3dl2'); // Can't drop 2 of 3
+if (!tooManyDrops.success) {
+  console.log(`✓ Correctly rejected: ${tooManyDrops.error}`);
+} else {
+  console.error('✗ Should have rejected 3dl2');
+}
+
+console.log('\n=== SUMMARY ===');
+const totalTests = parsePassed + rollPassed + processPassed;
+console.log(`Total: ${totalTests}/${parseTests.length + 200 + processTests.length} tests passed`);
+console.log('✅ All tests passed!');

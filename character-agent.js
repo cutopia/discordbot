@@ -4,7 +4,11 @@
  * RAG integration, dice rolls, and validation.
  */
 
+// Import dice module for proper dice roll handling
 import { processDiceRoll } from './dice.js';
+
+// Import RAG query function (will be used in Phase 2.2)
+// import { queryVectorStore } from './rag.js';
 
 // Maximum steps in the generation loop to prevent infinite loops
 const DEFAULT_MAX_STEPS = 8;
@@ -233,6 +237,13 @@ export class CharacterGenerationAgent {
     for (const [scoreName, _] of Object.entries(this.characterData.abilityScores)) {
       const rollResult = this.rollDiceForAbilityScore();
       
+      if (rollResult.error) {
+        return {
+          success: false,
+          error: `Failed to calculate ${scoreName}: ${rollResult.error}`
+        };
+      }
+      
       scores[scoreName] = rollResult.total;
       this.diceRolls.push({
         notation: '4d6dl1',
@@ -245,33 +256,42 @@ export class CharacterGenerationAgent {
     return {
       success: true,
       action: 'calculate_ability_scores',
-      result: `Ability scores calculated using 4d6 drop lowest method`
+      result: `Ability scores calculated using 4d6 drop lowest method`,
+      details: {
+        scores,
+        diceRolls: this.diceRolls.length
+      }
     };
   }
   
   /**
    * Roll dice for a single ability score (4d6 drop lowest)
+   * Uses the enhanced dice.js module for proper dice roll handling
    * @returns {object} Roll results including total after dropping lowest
    */
   rollDiceForAbilityScore() {
-    // Roll 4d6
-    const rolls = [];
-    let sum = 0;
+    // Use processDiceRoll with 4d6dl1 notation (drop lowest 1)
+    const result = processDiceRoll('4d6dl1');
     
-    for (let i = 0; i < 4; i++) {
-      const roll = Math.floor(Math.random() * 6) + 1;
-      rolls.push(roll);
-      sum += roll;
+    if (!result.success) {
+      console.error('Dice roll failed:', result.error);
+      
+      return {
+        rolls: [],
+        dropped: 0,
+        total: null,
+        error: result.error
+      };
     }
     
-    // Find and remove lowest roll
-    const minRoll = Math.min(...rolls);
-    const total = sum - minRoll;
-    
+    // Return the detailed results from dice module
     return {
-      rolls,
-      dropped: minRoll,
-      total
+      rolls: result.details.allRolls || [], // All rolled values
+      keptRolls: result.details.keptRolls || [], // Values after dropping lowest
+      dropped: result.details.droppedLowest[0] || 0, // The lowest value that was dropped
+      total: result.details.total,
+      notation: '4d6dl1',
+      processedByDiceModule: true
     };
   }
   
