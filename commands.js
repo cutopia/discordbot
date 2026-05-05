@@ -60,6 +60,18 @@ const commands = [
         required: true
       }
     ]
+  },
+  {
+    name: 'character',
+    description: 'Create a new RPG character using the current RAG system context',
+    options: [
+      {
+        type: 3, // STRING type
+        name: 'specifications',
+        description: 'Character specifications (race, class, background, etc.)',
+        required: false
+      }
+    ]
   }
 ];
 

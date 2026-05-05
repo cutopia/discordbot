@@ -8,6 +8,7 @@ A Discord bot with integrated AI chat capabilities using LM Studio and RAG (Retr
 - **RAG Support**: Contextual answers from uploaded PDF documents
 - **Conversation History**: Maintains chat context within channels
 - **Pagination**: Handles long AI responses with interactive pagination
+- **Character Generation**: Create RPG characters using RAG context and dice rolls
 - **Local Processing**: All AI processing runs locally (no external API costs)
 
 ## Prerequisites
@@ -78,6 +79,22 @@ npm run dev
 
 ## Usage
 
+### Character Generation Command
+
+Create RPG characters with the `/character` command:
+
+```
+/character
+/character Human Fighter with high strength
+```
+
+The character generation process:
+1. Determines race and class (or uses user specifications)
+2. Calculates ability scores using 4d6 drop lowest method
+3. Selects background and personality traits
+4. Generates equipment and skills based on class
+5. Creates a complete character sheet
+
 ### Chat Command
 
 Use `/chat` to send messages to the AI:
@@ -102,6 +119,8 @@ The bot will respond using your locally-hosted model.
 - `rag.js` - RAG functionality and document embedding
 - `pagination.js` - Interactive pagination for long responses
 - `commands.js` - Slash command definitions
+- `character-agent.js` - RPG character generation agent
+- `dice.js` - Dice rolling utilities
 - `game.js` - Rock-paper-scissors game (example feature)
 - `utils.js` - Utility functions
 
@@ -113,6 +132,15 @@ npm run test-lmstudio
 
 # Test RAG functionality
 npm run test-rag
+
+# Test dice rolling
+npm run test-dice
+
+# Test character generation agent
+npm run test-character
+
+# Test tools integration
+npm run test-tools
 ```
 
 ## License

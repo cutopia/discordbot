@@ -23,6 +23,7 @@ import {
 } from './pagination.js';
 import { setRAGSource } from './chatbot.js';
 import { processDiceRoll, getDiceRollSeed } from './dice.js';
+import { generateCharacter } from './character-agent.js';
 
 // Log the dice RNG seed on startup (seeded random is enabled in dice.js)
 console.log(`🎲 Dice RNG initialized with seed: ${getDiceRollSeed()}`);
@@ -439,6 +440,195 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           data: {
             content: `❌ Error rolling dice: ${error.message}`,
             flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
+    }
+
+    // "character" command - create a new RPG character using the current RAG system context
+    if (name === 'character') {
+      const specifications = data.options?.[0]?.value || '';
+      
+      // Get channel ID for conversation context
+      const channelId = req.body.channel_id;
+      
+      if (!channelId) {
+        console.error('Error: Could not determine channel ID from interaction payload');
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: 'Error: Could not determine channel context. Please try again in a server channel.',
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
+      
+      // Check if this is a DM/GDM channel (type 1 or 3) where bot might not have permission
+      const channelType = req.body.channel_type;
+      if (channelType === 1 || channelType === 3) {
+        console.warn(`Warning: Command invoked in DM/GDM channel (type ${channelType}). Bot may not have permission to post.`);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: 'This command is only available in server channels where the bot has permission to post messages.',
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
+      
+      try {
+        console.log('Processing character generation...');
+        
+        // Send immediate "thinking..." response using deferred type
+        res.send({
+          type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: 'Creating your character... ⏳'
+          }
+        });
+        
+        // Process the character generation in background
+        generateCharacter(specifications, null)  // TODO: Pass actual RAG source when implemented
+          .then(async (result) => {
+            console.log('Got character generation result, editing original message...');
+            
+            try {
+              if (!result.success) {
+                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                  method: 'PATCH',
+                  body: {
+                    content: `❌ Character generation failed: ${result.error}`,
+                    allowed_mentions: {
+                      parse: ['users', 'roles']
+                    }
+                  }
+                });
+                return;
+              }
+              
+              // Send the formatted character sheet
+              await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                method: 'PATCH',
+                body: {
+                  content: result.formattedSheet,
+                  allowed_mentions: {
+                    parse: ['users', 'roles']
+                  }
+                }
+              });
+              
+              console.log('Successfully sent character sheet');
+            } catch (editError) {
+              console.error('Error sending character sheet:', editError);
+              
+              // Check if it's a permission error
+              const isPermissionError = 
+                editError.message?.includes('50001') || // Missing Access
+                editError.message?.includes('50013');   // Missing Permissions
+                
+              if (isPermissionError) {
+                console.warn('Bot lacks permission to post in this channel. The command may have been invoked in a DM or restricted channel.');
+              }
+              
+              // Fallback to regular message sending only if we have a valid server channel
+              if (channelId && !isPermissionError) {
+                try {
+                  const chunks = splitMessage(`Character generation failed: ${result.error || 'Unknown error'}`);
+                  
+                  for (let i = 0; i < chunks.length; i++) {
+                    await DiscordRequest(`channels/${channelId}/messages`, {
+                      method: 'POST',
+                      body: {
+                        content: chunks[i],
+                        allowed_mentions: {
+                          parse: ['users', 'roles']
+                        }
+                      }
+                    });
+                  }
+                } catch (postError) {
+                  console.error('Failed to send fallback message:', postError);
+                }
+              }
+            }
+          })
+          .catch(async (error) => {
+            console.error('Error generating character:', error);
+            
+            // Check if it's a permission error
+            const isPermissionError = 
+              error.message?.includes('50001') || // Missing Access
+              error.message?.includes('50013');   // Missing Permissions
+            
+            try {
+              // Split error message if needed
+              const chunks = splitMessage(`Sorry, I encountered an error: ${error.message}`);
+              
+              // If we have permission issues, don't try to send follow-up messages via webhook
+              if (isPermissionError) {
+                console.warn('Bot lacks permission to post in this channel. Error message will not be sent.');
+                return;
+              }
+              
+              // Edit the original deferred message with the first chunk
+              await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                method: 'PATCH',
+                body: {
+                  content: chunks[0],
+                  allowed_mentions: {
+                    parse: ['users', 'roles']
+                  }
+                }
+              });
+              
+              // Send additional chunks as follow-up messages if needed
+              for (let i = 1; i < chunks.length; i++) {
+                try {
+                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages`, {
+                    method: 'POST',
+                    body: {
+                      content: chunks[i],
+                      allowed_mentions: {
+                        parse: ['users', 'roles']
+                      }
+                    }
+                  });
+                  console.log(`Sent follow-up error message chunk ${i + 1}/${chunks.length}`);
+                } catch (postError) {
+                  console.error(`Failed to send follow-up error message chunk ${i + 1}:`, postError);
+                  
+                  // If webhook fails, try channel API as fallback
+                  if (channelId && !isPermissionError) {
+                    try {
+                      await DiscordRequest(`channels/${channelId}/messages`, {
+                        method: 'POST',
+                        body: {
+                          content: chunks[i],
+                          allowed_mentions: {
+                            parse: ['users', 'roles']
+                          }
+                        }
+                      });
+                      console.log(`Sent follow-up error message chunk ${i + 1}/${chunks.length} via channel API`);
+                    } catch (channelError) {
+                      console.error(`Failed to send follow-up error message chunk ${i + 1} via channel API:`, channelError);
+                    }
+                  }
+                }
+              }
+            } catch (editError) {
+              console.error('Error editing message with error:', editError);
+            }
+          });
+        
+        // Return immediately to avoid timeout
+        return res.status(204).end();
+      } catch (error) {
+        console.error('Unexpected error processing character command:', error);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `Sorry, I encountered an unexpected error: ${error.message}`
           }
         });
       }

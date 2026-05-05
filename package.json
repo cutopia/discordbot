@@ -15,7 +15,8 @@
     "test-lmstudio": "node tests/test-lmstudio.js",
     "test-rag": "node tests/test-rag.js",
     "test-dice": "node tests/test-dice.js",
-    "test-tools": "node tests/test-tools.js"
+    "test-tools": "node tests/test-tools.js",
+    "test-character": "node tests/test-character.js"
   },
   "author": "Shay DeWael",
   "license": "MIT",
