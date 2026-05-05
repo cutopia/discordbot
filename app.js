@@ -22,6 +22,7 @@ import {
   paginationStore
 } from './pagination.js';
 import { setRAGSource } from './chatbot.js';
+import { processDiceRoll } from './dice.js';
 
 // Create an express app
 const app = express();
@@ -394,6 +395,50 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           flags: InteractionResponseFlags.EPHEMERAL
         }
       });
+    }
+
+    // "dice" command - roll dice with notation like "1d20+5"
+    if (name === 'dice') {
+      const notation = data.options?.[0]?.value || '';
+      
+      if (!notation) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: 'Please provide a dice notation. Example: /dice 1d20+5'
+          }
+        });
+      }
+      
+      try {
+        const result = processDiceRoll(notation);
+        
+        if (!result.success) {
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `❌ ${result.error}`,
+              flags: InteractionResponseFlags.EPHEMERAL
+            }
+          });
+        }
+        
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: result.message
+          }
+        });
+      } catch (error) {
+        console.error('Error processing dice roll:', error);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `❌ Error rolling dice: ${error.message}`,
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
     }
 
     console.error(`unknown command: ${name}`);

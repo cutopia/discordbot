@@ -48,6 +48,18 @@ const commands = [
   {
     name: 'rag_list',
     description: 'List all available PDF sources for RAG'
+  },
+  {
+    name: 'dice',
+    description: 'Roll dice using notation like "1d20+5", "2d6-3", etc.',
+    options: [
+      {
+        type: 3, // STRING type
+        name: 'notation',
+        description: 'Dice notation (e.g., 1d20+5, 2d6-3, 3d8)',
+        required: true
+      }
+    ]
   }
 ];
 
