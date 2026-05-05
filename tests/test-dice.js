@@ -1,4 +1,7 @@
-import { parseDiceNotation, rollDice, processDiceRoll } from '../dice.js';
+import { parseDiceNotation, rollDice, processDiceRoll, getDiceRollSeed } from '../dice.js';
+
+// Test that seed is logged on import
+console.log(`🎲 Dice RNG initialized with seed: ${getDiceRollSeed()}\n`);
 
 // Test parseDiceNotation function
 console.log('Testing parseDiceNotation...');

@@ -22,7 +22,10 @@ import {
   paginationStore
 } from './pagination.js';
 import { setRAGSource } from './chatbot.js';
-import { processDiceRoll } from './dice.js';
+import { processDiceRoll, getDiceRollSeed } from './dice.js';
+
+// Log the dice RNG seed on startup (seeded random is enabled in dice.js)
+console.log(`🎲 Dice RNG initialized with seed: ${getDiceRollSeed()}`);
 
 // Create an express app
 const app = express();

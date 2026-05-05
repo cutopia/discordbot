@@ -3,6 +3,11 @@
  * Supports dice notation like 1d20+5, 2d6-3, 3d8, etc.
  */
 
+import { enableSeededRandom, getSeed } from './seeded-random.js';
+
+// Enable seeded random on module load so it's active for all dice operations
+enableSeededRandom();
+
 /**
  * Parse dice notation string (e.g., "1d20+5", "2d6-3", "3d8")
  * @param {string} notation - Dice notation string
@@ -120,7 +125,7 @@ export function processDiceRoll(notation) {
 }
 
 /**
- * Generate a random dice roll command example
+ * Generate a random dice roll command example using seeded RNG
  * @returns {string} Example dice notation
  */
 export function getRandomDiceExample() {
@@ -132,5 +137,15 @@ export function getRandomDiceExample() {
     '4d6+3',
     '2d12+7'
   ];
+  
+  // Use Math.random which is now replaced by seededRNG
   return examples[Math.floor(Math.random() * examples.length)];
+}
+
+/**
+ * Get the seed being used for dice rolls
+ * @returns {number} The current seed value
+ */
+export function getDiceRollSeed() {
+  return getSeed();
 }
