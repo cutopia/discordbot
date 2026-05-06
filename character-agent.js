@@ -448,7 +448,27 @@ Available races:`;
         const response = await getLMStudioResponse(prompt);
         
         // Parse the response to extract race names
-        availableRaces = response.split(',').map(r => r.trim()).filter(r => r.length > 0 && !r.toLowerCase().includes('not found') && !r.toLowerCase().includes('no races'));
+        availableRaces = response.split(',')
+          .map(r => r.trim())
+          .filter(r => {
+            if (r.length === 0) return false;
+            
+            const lowerR = r.toLowerCase();
+            if (lowerR.includes('not found')) return false;
+            if (lowerR.includes('no races')) return false;
+            if (lowerR.includes('none provided')) return false;
+            if (lowerR.includes('crew position')) return false;
+            if (lowerR.includes('weapon')) return false;
+            
+            // Filter out lines that don't look like race names
+            const wordCount = r.split(/\s+/).length;
+            if (wordCount > 3) return false;
+            
+            if (!/[a-zA-Z]/.test(r)) return false;
+            if (/\d/.test(r)) return false;
+            
+            return true;
+          });
         
         if (availableRaces.length === 0) {
           // Fallback to default if parsing fails
@@ -506,7 +526,27 @@ Available classes:`;
         const response = await getLMStudioResponse(prompt);
         
         // Parse the response to extract class names
-        availableClasses = response.split(',').map(c => c.trim()).filter(c => c.length > 0 && !c.toLowerCase().includes('not found') && !c.toLowerCase().includes('no classes'));
+        availableClasses = response.split(',')
+          .map(c => c.trim())
+          .filter(c => {
+            if (c.length === 0) return false;
+            
+            const lowerC = c.toLowerCase();
+            if (lowerC.includes('not found')) return false;
+            if (lowerC.includes('no classes')) return false;
+            if (lowerC.includes('none provided')) return false;
+            if (lowerC.includes('crew position')) return false;
+            if (lowerC.includes('weapon')) return false;
+            
+            // Filter out lines that don't look like class names
+            const wordCount = c.split(/\s+/).length;
+            if (wordCount > 3) return false;
+            
+            if (!/[a-zA-Z]/.test(c)) return false;
+            if (/\d/.test(c)) return false;
+            
+            return true;
+          });
         
         if (availableClasses.length === 0) {
           // Fallback to default if parsing fails
@@ -671,7 +711,31 @@ Available backgrounds:`;
         const response = await getLMStudioResponse(prompt);
         
         // Parse the response to extract background names
-        availableBackgrounds = response.split(',').map(b => b.trim()).filter(b => b.length > 0 && !b.toLowerCase().includes('not found') && !b.toLowerCase().includes('no backgrounds'));
+        availableBackgrounds = response.split(',')
+          .map(b => b.trim())
+          .filter(b => {
+            // Filter out empty strings and common non-background text
+            if (b.length === 0) return false;
+            
+            const lowerB = b.toLowerCase();
+            if (lowerB.includes('not found')) return false;
+            if (lowerB.includes('no backgrounds')) return false;
+            if (lowerB.includes('none provided')) return false;
+            if (lowerB.includes('crew position')) return false;
+            if (lowerB.includes('weapon')) return false;
+            if (lowerB.includes('equipment')) return false;
+            
+            // Filter out lines that don't look like background names
+            // Backgrounds are typically single words or short phrases with capital letters
+            const wordCount = b.split(/\s+/).length;
+            if (wordCount > 4) return false;
+            
+            // Should contain at least one letter and no numbers
+            if (!/[a-zA-Z]/.test(b)) return false;
+            if (/\d/.test(b)) return false;
+            
+            return true;
+          });
         
         if (availableBackgrounds.length === 0) {
           // Fallback to default if parsing fails
@@ -940,6 +1004,59 @@ Character Backstory:`;
     if (!this.characterData.race) issues.push('Missing race');
     if (!this.characterData.class) issues.push('Missing class');
     if (!this.characterData.background) issues.push('Missing background');
+    
+    // Validate that background doesn't contain invalid text
+    const invalidPatterns = [
+      'none provided',
+      'crew position',
+      'weapon',
+      'equipment'
+    ];
+    
+    if (this.characterData.background) {
+      const lowerBackground = this.characterData.background.toLowerCase();
+      for (const pattern of invalidPatterns) {
+        if (lowerBackground.includes(pattern)) {
+          issues.push(`Invalid background "${this.characterData.background}" contains "${pattern}"`);
+          break;
+        }
+      }
+      
+      // Background should be a reasonable length
+      if (this.characterData.background.length < 2 || this.characterData.background.length > 50) {
+        issues.push(`Background "${this.characterData.background}" has invalid length (${this.characterData.background.length} chars)`);
+      }
+    }
+    
+    // Validate race
+    if (this.characterData.race) {
+      const lowerRace = this.characterData.race.toLowerCase();
+      for (const pattern of invalidPatterns) {
+        if (lowerRace.includes(pattern)) {
+          issues.push(`Invalid race "${this.characterData.race}" contains "${pattern}"`);
+          break;
+        }
+      }
+      
+      if (this.characterData.race.length < 2 || this.characterData.race.length > 30) {
+        issues.push(`Race "${this.characterData.race}" has invalid length (${this.characterData.race.length} chars)`);
+      }
+    }
+    
+    // Validate class
+    if (this.characterData.class) {
+      const lowerClass = this.characterData.class.toLowerCase();
+      for (const pattern of invalidPatterns) {
+        if (lowerClass.includes(pattern)) {
+          issues.push(`Invalid class "${this.characterData.class}" contains "${pattern}"`);
+          break;
+        }
+      }
+      
+      if (this.characterData.class.length < 2 || this.characterData.class.length > 30) {
+        issues.push(`Class "${this.characterData.class}" has invalid length (${this.characterData.class.length} chars)`);
+      }
+    }
     
     // Validate attribute/ability scores based on the system being used
     const scores = this.characterData.abilityScores;
