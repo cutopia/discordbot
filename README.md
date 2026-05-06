@@ -8,7 +8,8 @@ A Discord bot with integrated AI chat capabilities using LM Studio and RAG (Retr
 - **RAG Support**: Contextual answers from uploaded PDF documents
 - **Conversation History**: Maintains chat context within channels
 - **Pagination**: Handles long AI responses with interactive pagination
-- **Character Generation**: Create RPG characters using RAG context and dice rolls
+- **Character Generation**: Create RPG characters with step-by-step generation, dice rolls, and optional RAG integration for world consistency
+- **Progress Reporting**: Real-time updates during character generation showing which steps are completed
 - **Local Processing**: All AI processing runs locally (no external API costs)
 
 ## Prerequisites
@@ -95,6 +96,12 @@ The character generation process:
 4. Generates equipment and skills based on class
 5. Creates a complete character sheet
 
+**Features:**
+- **Step-by-step generation**: 8 steps maximum to prevent infinite loops
+- **Dice integration**: Uses enhanced dice notation (e.g., `4d6dl1` for ability scores)
+- **RAG context**: Optionally uses PDF context for world consistency
+- **Progress reporting**: Shows which steps are completed during generation
+
 ### Chat Command
 
 Use `/chat` to send messages to the AI:
@@ -119,7 +126,8 @@ The bot will respond using your locally-hosted model.
 - `rag.js` - RAG functionality and document embedding
 - `pagination.js` - Interactive pagination for long responses
 - `commands.js` - Slash command definitions
-- `character-agent.js` - RPG character generation agent
+- `character-agent.js` - Core RPG character generation agent
+- `character-generator.js` - High-level orchestration with RAG integration
 - `dice.js` - Dice rolling utilities
 - `game.js` - Rock-paper-scissors game (example feature)
 - `utils.js` - Utility functions
@@ -136,8 +144,14 @@ npm run test-rag
 # Test dice rolling
 npm run test-dice
 
-# Test character generation agent
+# Test character generation agent (core logic)
 npm run test-character
+
+# Test dice integration
+npm run test-character-dice-integration
+
+# Test RAG integration with character generation
+npm run test-character-rag-integration
 
 # Test tools integration
 npm run test-tools

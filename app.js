@@ -23,7 +23,8 @@ import {
 } from './pagination.js';
 import { setRAGSource } from './chatbot.js';
 import { processDiceRoll, getDiceRollSeed } from './dice.js';
-import { generateCharacter } from './character-agent.js';
+import { generateCharacterWithProgress, formatProgressReport } from './character-generator.js';
+import { getRAGSource } from './chatbot.js';
 
 // Log the dice RNG seed on startup (seeded random is enabled in dice.js)
 console.log(`🎲 Dice RNG initialized with seed: ${getDiceRollSeed()}`);
@@ -476,8 +477,17 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
       }
       
+      // Get active RAG source for this channel (if any)
+      const ragSource = getRAGSource(channelId);
+      
       try {
         console.log('Processing character generation...');
+        
+        if (ragSource) {
+          console.log(`Using RAG source: ${ragSource}`);
+        } else {
+          console.log('No RAG source active, using default world rules');
+        }
         
         // Send immediate "thinking..." response using deferred type
         res.send({
@@ -487,8 +497,8 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           }
         });
         
-        // Process the character generation in background
-        generateCharacter(specifications, null)  // TODO: Pass actual RAG source when implemented
+        // Process the character generation in background with progress reporting
+        generateCharacterWithProgress(specifications, ragSource)
           .then(async (result) => {
             console.log('Got character generation result, editing original message...');
             
@@ -506,11 +516,37 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 return;
               }
               
-              // Send the formatted character sheet
+              // Build response with progress report if available
+              let responseContent = result.formattedSheet;
+              
+              if (result.progressUpdates && result.progressUpdates.length > 0) {
+                const progressReport = formatProgressReport(result.progressUpdates);
+                if (progressReport) {
+                  responseContent = `${progressReport}\n\n---\n${responseContent}`;
+                }
+              }
+              
+              // Split the character sheet content if it exceeds Discord's limit
+              const chunks = splitMessage(responseContent);
+              
+              // Send all chunks except the last one via webhook PATCH
+              for (let i = 0; i < chunks.length - 1; i++) {
+                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                  method: 'PATCH',
+                  body: {
+                    content: chunks[i],
+                    allowed_mentions: {
+                      parse: ['users', 'roles']
+                    }
+                  }
+                });
+              }
+              
+              // Send the last chunk and log success
               await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
                 method: 'PATCH',
                 body: {
-                  content: result.formattedSheet,
+                  content: chunks[chunks.length - 1],
                   allowed_mentions: {
                     parse: ['users', 'roles']
                   }

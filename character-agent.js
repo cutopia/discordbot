@@ -7,8 +7,8 @@
 // Import dice module for proper dice roll handling
 import { processDiceRoll } from './dice.js';
 
-// Import RAG query function (will be used in Phase 2.2)
-// import { queryVectorStore } from './rag.js';
+// Import RAG functions
+import { queryVectorStore, getOrCreateVectorStore } from './rag.js';
 
 // Maximum steps in the generation loop to prevent infinite loops
 const DEFAULT_MAX_STEPS = 8;
@@ -63,7 +63,7 @@ export class CharacterGenerationAgent {
   /**
    * Initialize the agent with specifications and RAG source
    * @param {string} specifications - User-provided character specs (race, class, etc.)
-   * @param {string} ragSource - Path to active RAG PDF document
+   * @param {string|null} ragSource - Path to active RAG PDF document (null for no RAG)
    */
   async initialize(specifications = '', ragSource) {
     this.currentStep = 0;
@@ -95,8 +95,84 @@ export class CharacterGenerationAgent {
       this.characterData.otherNotes.push(`User request: ${specifications}`);
     }
     
-    // TODO: Retrieve RAG context for world-building consistency
-    // This will be implemented in Phase 3
+    // Retrieve RAG context for world-building consistency
+    if (ragSource) {
+      try {
+        console.log(`[Agent] Retrieving RAG context for "${ragSource}"...`);
+        
+        // Ensure vector store exists for this source
+        await getOrCreateVectorStore(ragSource);
+        
+        // Use the correct source name (filename without path and extension)
+        const sourceName = ragSource.replace(/^.*[\\/]/, '').replace(/\.pdf$/, '');
+        
+        // Get all available races in this world
+        const raceContext = await queryVectorStore(sourceName, 'What races are available in this world? List all playable races with their key characteristics.', 3);
+        if (raceContext.length > 0) {
+          this.ragContext.push({
+            type: 'races',
+            documents: raceContext
+          });
+          console.log(`[Agent] Retrieved ${raceContext.length} race context document(s)`);
+        }
+        
+        // Get all available classes in this world
+        const classContext = await queryVectorStore(sourceName, 'What classes are available in this world? List all playable classes with their key features.', 3);
+        if (classContext.length > 0) {
+          this.ragContext.push({
+            type: 'classes',
+            documents: classContext
+          });
+          console.log(`[Agent] Retrieved ${classContext.length} class context document(s)`);
+        }
+        
+        // Get all available backgrounds in this world
+        const backgroundContext = await queryVectorStore(sourceName, 'What backgrounds are available for characters in this setting?', 3);
+        if (backgroundContext.length > 0) {
+          this.ragContext.push({
+            type: 'backgrounds',
+            documents: backgroundContext
+          });
+          console.log(`[Agent] Retrieved ${backgroundContext.length} background context document(s)`);
+        }
+        
+        // Get ability score generation rules
+        const abilityContext = await queryVectorStore(sourceName, 'How do ability scores work in this system? What is the standard method for generating them?', 2);
+        if (abilityContext.length > 0) {
+          this.ragContext.push({
+            type: 'ability_scores',
+            documents: abilityContext
+          });
+          console.log(`[Agent] Retrieved ${abilityContext.length} ability score context document(s)`);
+        }
+        
+        // Get personality trait guidelines for this world
+        const personalityContext = await queryVectorStore(sourceName, 'What personality traits would be appropriate for characters in this setting?', 2);
+        if (personalityContext.length > 0) {
+          this.ragContext.push({
+            type: 'personality',
+            documents: personalityContext
+          });
+          console.log(`[Agent] Retrieved ${personalityContext.length} personality context document(s)`);
+        }
+        
+        // Get backstory guidelines for this world
+        const backstoryContext = await queryVectorStore(sourceName, 'What kinds of backstories are common in this world setting?', 2);
+        if (backstoryContext.length > 0) {
+          this.ragContext.push({
+            type: 'backstories',
+            documents: backstoryContext
+          });
+          console.log(`[Agent] Retrieved ${backstoryContext.length} backstory context document(s)`);
+        }
+        
+      } catch (error) {
+        console.error('[Agent] Error retrieving RAG context:', error);
+        // Continue with default generation if RAG fails
+      }
+    } else {
+      console.log('[Agent] No RAG source specified, using default world rules');
+    }
     
     console.log('Character generation agent initialized');
   }
@@ -191,10 +267,48 @@ export class CharacterGenerationAgent {
    * @returns {Promise<object>} Result of race determination
    */
   async determineRace() {
-    // TODO: Use RAG context to get available races in the world
-    const availableRaces = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'];
+    // Extract available races from RAG context if available
+    let availableRaces = [];
     
-    // For now, use a simple selection (will be enhanced with LLM in Phase 2)
+    const raceContext = this.ragContext.find(ctx => ctx.type === 'races');
+    if (raceContext && raceContext.documents.length > 0) {
+      console.log('[Agent] Using RAG context to determine available races');
+      
+      // Build a prompt for the LLM to extract races from context
+      const contextText = raceContext.documents.map(doc => doc.content).join('\n\n');
+      const prompt = `Based on the following world context, list all playable races. Return only the race names as a comma-separated list.
+      
+World Context:
+${contextText}
+
+Available races:`;
+      
+      try {
+        // Import getLMStudioResponse for LLM-based extraction
+        const { getLMStudioResponse } = await import('./lmstudio.js');
+        const response = await getLMStudioResponse(prompt);
+        
+        // Parse the response to extract race names
+        availableRaces = response.split(',').map(r => r.trim()).filter(r => r.length > 0 && !r.toLowerCase().includes('not found') && !r.toLowerCase().includes('no races'));
+        
+        if (availableRaces.length === 0) {
+          // Fallback to default if parsing fails
+          availableRaces = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'];
+          console.log('[Agent] Could not parse races from LLM response, using defaults');
+        } else {
+          console.log(`[Agent] Extracted ${availableRaces.length} races from RAG context: ${availableRaces.join(', ')}`);
+        }
+      } catch (error) {
+        console.error('[Agent] Error extracting races from RAG context:', error);
+        // Fallback to default if LLM fails
+        availableRaces = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'];
+      }
+    } else {
+      console.log('[Agent] No RAG race context available, using defaults');
+      availableRaces = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'];
+    }
+    
+    // Select a random race from the available options
     const race = availableRaces[Math.floor(Math.random() * availableRaces.length)];
     
     this.characterData.race = race;
@@ -211,9 +325,48 @@ export class CharacterGenerationAgent {
    * @returns {Promise<object>} Result of class determination
    */
   async determineClass() {
-    // TODO: Use RAG context to get available classes in the world
-    const availableClasses = ['Fighter', 'Wizard', 'Cleric', 'Rogue', 'Barbarian', 'Bard', 'Paladin', 'Ranger'];
+    // Extract available classes from RAG context if available
+    let availableClasses = [];
     
+    const classContext = this.ragContext.find(ctx => ctx.type === 'classes');
+    if (classContext && classContext.documents.length > 0) {
+      console.log('[Agent] Using RAG context to determine available classes');
+      
+      // Build a prompt for the LLM to extract classes from context
+      const contextText = classContext.documents.map(doc => doc.content).join('\n\n');
+      const prompt = `Based on the following world context, list all playable classes. Return only the class names as a comma-separated list.
+      
+World Context:
+${contextText}
+
+Available classes:`;
+      
+      try {
+        // Import getLMStudioResponse for LLM-based extraction
+        const { getLMStudioResponse } = await import('./lmstudio.js');
+        const response = await getLMStudioResponse(prompt);
+        
+        // Parse the response to extract class names
+        availableClasses = response.split(',').map(c => c.trim()).filter(c => c.length > 0 && !c.toLowerCase().includes('not found') && !c.toLowerCase().includes('no classes'));
+        
+        if (availableClasses.length === 0) {
+          // Fallback to default if parsing fails
+          availableClasses = ['Fighter', 'Wizard', 'Cleric', 'Rogue', 'Barbarian', 'Bard', 'Paladin', 'Ranger'];
+          console.log('[Agent] Could not parse classes from LLM response, using defaults');
+        } else {
+          console.log(`[Agent] Extracted ${availableClasses.length} classes from RAG context: ${availableClasses.join(', ')}`);
+        }
+      } catch (error) {
+        console.error('[Agent] Error extracting classes from RAG context:', error);
+        // Fallback to default if LLM fails
+        availableClasses = ['Fighter', 'Wizard', 'Cleric', 'Rogue', 'Barbarian', 'Bard', 'Paladin', 'Ranger'];
+      }
+    } else {
+      console.log('[Agent] No RAG class context available, using defaults');
+      availableClasses = ['Fighter', 'Wizard', 'Cleric', 'Rogue', 'Barbarian', 'Bard', 'Paladin', 'Ranger'];
+    }
+    
+    // Select a random class from the available options
     const charClass = availableClasses[Math.floor(Math.random() * availableClasses.length)];
     
     this.characterData.class = charClass;
@@ -227,15 +380,48 @@ export class CharacterGenerationAgent {
   
   /**
    * Calculate ability scores using dice rolls (Step 3)
-   * Uses 4d6 drop lowest method for each ability
+   * Uses RAG context to determine the correct method for this world
    * @returns {Promise<object>} Result of ability score calculation
    */
   async calculateAbilityScores() {
     const scores = {};
     
-    // Roll 4d6 drop lowest for each ability score
+    // Check if RAG context specifies a different ability score generation method
+    const abilityContext = this.ragContext.find(ctx => ctx.type === 'ability_scores');
+    let method = '4d6dl1'; // Default: 4d6 drop lowest
+    
+    if (abilityContext && abilityContext.documents.length > 0) {
+      console.log('[Agent] Using RAG context to determine ability score generation method');
+      
+      const contextText = abilityContext.documents.map(doc => doc.content).join('\n\n');
+      const prompt = `Based on the following world context, what is the standard method for generating ability scores? Answer with a dice notation like "4d6dl1", "3d6", "point buy", etc.
+      
+World Context:
+${contextText}
+
+Ability score generation method:`;
+      
+      try {
+        // Import getLMStudioResponse for LLM-based extraction
+        const { getLMStudioResponse } = await import('./lmstudio.js');
+        const response = await getLMStudioResponse(prompt);
+        
+        // Parse the response to extract dice notation
+        const parsedMethod = response.match(/(\d+d\d+(dl\d+)?)/i);
+        if (parsedMethod) {
+          method = parsedMethod[0];
+          console.log(`[Agent] Using ability score generation method: ${method}`);
+        } else {
+          console.log('[Agent] Could not parse method from LLM response, using default');
+        }
+      } catch (error) {
+        console.error('[Agent] Error determining ability score method:', error);
+      }
+    }
+    
+    // Roll dice for each ability score
     for (const [scoreName, _] of Object.entries(this.characterData.abilityScores)) {
-      const rollResult = this.rollDiceForAbilityScore();
+      const rollResult = this.rollDiceForAbilityScore(method);
       
       if (rollResult.error) {
         return {
@@ -246,7 +432,7 @@ export class CharacterGenerationAgent {
       
       scores[scoreName] = rollResult.total;
       this.diceRolls.push({
-        notation: '4d6dl1',
+        notation: method,
         result: rollResult
       });
     }
@@ -256,7 +442,7 @@ export class CharacterGenerationAgent {
     return {
       success: true,
       action: 'calculate_ability_scores',
-      result: `Ability scores calculated using 4d6 drop lowest method`,
+      result: `Ability scores calculated using ${method} method`,
       details: {
         scores,
         diceRolls: this.diceRolls.length
@@ -265,13 +451,14 @@ export class CharacterGenerationAgent {
   }
   
   /**
-   * Roll dice for a single ability score (4d6 drop lowest)
+   * Roll dice for a single ability score
    * Uses the enhanced dice.js module for proper dice roll handling
+   * @param {string} notation - Dice notation (default: '4d6dl1')
    * @returns {object} Roll results including total after dropping lowest
    */
-  rollDiceForAbilityScore() {
-    // Use processDiceRoll with 4d6dl1 notation (drop lowest 1)
-    const result = processDiceRoll('4d6dl1');
+  rollDiceForAbilityScore(notation = '4d6dl1') {
+    // Use processDiceRoll with the specified notation
+    const result = processDiceRoll(notation);
     
     if (!result.success) {
       console.error('Dice roll failed:', result.error);
@@ -290,7 +477,7 @@ export class CharacterGenerationAgent {
       keptRolls: result.details.keptRolls || [], // Values after dropping lowest
       dropped: result.details.droppedLowest[0] || 0, // The lowest value that was dropped
       total: result.details.total,
-      notation: '4d6dl1',
+      notation: notation,
       processedByDiceModule: true
     };
   }
@@ -300,23 +487,90 @@ export class CharacterGenerationAgent {
    * @returns {Promise<object>} Result of background determination
    */
   async determineBackground() {
-    // TODO: Use RAG context to get available backgrounds in the world
-    const availableBackgrounds = [
-      'Acolyte',
-      'Charlatan',
-      'Criminal',
-      'Entertainer',
-      'Folk Hero',
-      'Guild Artisan',
-      'Hermit',
-      'Noble',
-      'Outlander',
-      'Sage',
-      'Sailor',
-      'Soldier',
-      'Urchin'
-    ];
+    // Extract available backgrounds from RAG context if available
+    let availableBackgrounds = [];
     
+    const backgroundContext = this.ragContext.find(ctx => ctx.type === 'backgrounds');
+    if (backgroundContext && backgroundContext.documents.length > 0) {
+      console.log('[Agent] Using RAG context to determine available backgrounds');
+      
+      // Build a prompt for the LLM to extract backgrounds from context
+      const contextText = backgroundContext.documents.map(doc => doc.content).join('\n\n');
+      const prompt = `Based on the following world context, list all available backgrounds. Return only the background names as a comma-separated list.
+      
+World Context:
+${contextText}
+
+Available backgrounds:`;
+      
+      try {
+        // Import getLMStudioResponse for LLM-based extraction
+        const { getLMStudioResponse } = await import('./lmstudio.js');
+        const response = await getLMStudioResponse(prompt);
+        
+        // Parse the response to extract background names
+        availableBackgrounds = response.split(',').map(b => b.trim()).filter(b => b.length > 0 && !b.toLowerCase().includes('not found') && !b.toLowerCase().includes('no backgrounds'));
+        
+        if (availableBackgrounds.length === 0) {
+          // Fallback to default if parsing fails
+          availableBackgrounds = [
+            'Acolyte',
+            'Charlatan',
+            'Criminal',
+            'Entertainer',
+            'Folk Hero',
+            'Guild Artisan',
+            'Hermit',
+            'Noble',
+            'Outlander',
+            'Sage',
+            'Sailor',
+            'Soldier',
+            'Urchin'
+          ];
+          console.log('[Agent] Could not parse backgrounds from LLM response, using defaults');
+        } else {
+          console.log(`[Agent] Extracted ${availableBackgrounds.length} backgrounds from RAG context: ${availableBackgrounds.join(', ')}`);
+        }
+      } catch (error) {
+        console.error('[Agent] Error extracting backgrounds from RAG context:', error);
+        // Fallback to default if LLM fails
+        availableBackgrounds = [
+          'Acolyte',
+          'Charlatan',
+          'Criminal',
+          'Entertainer',
+          'Folk Hero',
+          'Guild Artisan',
+          'Hermit',
+          'Noble',
+          'Outlander',
+          'Sage',
+          'Sailor',
+          'Soldier',
+          'Urchin'
+        ];
+      }
+    } else {
+      console.log('[Agent] No RAG background context available, using defaults');
+      availableBackgrounds = [
+        'Acolyte',
+        'Charlatan',
+        'Criminal',
+        'Entertainer',
+        'Folk Hero',
+        'Guild Artisan',
+        'Hermit',
+        'Noble',
+        'Outlander',
+        'Sage',
+        'Sailor',
+        'Soldier',
+        'Urchin'
+      ];
+    }
+    
+    // Select a random background from the available options
     const background = availableBackgrounds[Math.floor(Math.random() * availableBackgrounds.length)];
     
     this.characterData.background = background;
@@ -333,18 +587,64 @@ export class CharacterGenerationAgent {
    * @returns {Promise<object>} Result of personality trait generation
    */
   async generatePersonalityTraits() {
-    // TODO: Use RAG context and LLM to generate world-appropriate traits
-    const traits = [
-      'I idolize a particular hero of my class and constantly try to imitate their deeds.',
-      'I am always calm, no matter what the situation. I never raise my voice or lose my temper.',
-      'I believe that everything done for a purpose should be done perfectly well.',
-      'I am convinced of the superiority of my race, class, or culture.',
-      'I am always hungry for new adventures and new places to explore.'
-    ];
+    // Use RAG context to generate world-appropriate personality traits if available
+    const personalityContext = this.ragContext.find(ctx => ctx.type === 'personality');
     
-    // Select 2-4 random traits
-    const numTraits = Math.floor(Math.random() * 3) + 2;
-    this.characterData.personalityTraits = traits.slice(0, numTraits);
+    if (personalityContext && personalityContext.documents.length > 0) {
+      console.log('[Agent] Using RAG context to generate personality traits');
+      
+      // Build a prompt for the LLM to generate personality traits
+      const contextText = personalityContext.documents.map(doc => doc.content).join('\n\n');
+      const prompt = `Based on the following world context, generate 2-4 personality traits that would be appropriate for characters in this setting. Each trait should be a short phrase (10-20 words) describing a character's behavior or outlook.
+
+World Context:
+${contextText}
+
+Personality Traits (return as numbered list):`;
+      
+      try {
+        // Import getLMStudioResponse for LLM-based generation
+        const { getLMStudioResponse } = await import('./lmstudio.js');
+        const response = await getLMStudioResponse(prompt);
+        
+        // Parse the response to extract personality traits
+        this.characterData.personalityTraits = response.split('\n')
+          .map(line => line.trim())
+          .filter(line => {
+            // Filter out lines that don't look like traits
+            return line.length > 10 && 
+                   !line.toLowerCase().includes('based on') &&
+                   !line.toLowerCase().includes('world context') &&
+                   !line.toLowerCase().includes('personality traits');
+          })
+          .slice(0, 4); // Limit to 4 traits
+        
+        if (this.characterData.personalityTraits.length === 0) {
+          // Fallback to default if parsing fails
+          this.characterData.personalityTraits = [
+            'I idolize a particular hero of my class and constantly try to imitate their deeds.',
+            'I am always calm, no matter what the situation. I never raise my voice or lose my temper.'
+          ];
+          console.log('[Agent] Could not parse personality traits from LLM response, using defaults');
+        } else {
+          console.log(`[Agent] Generated ${this.characterData.personalityTraits.length} personality traits from RAG context`);
+        }
+      } catch (error) {
+        console.error('[Agent] Error generating personality traits from RAG context:', error);
+        // Fallback to default if LLM fails
+        this.characterData.personalityTraits = [
+          'I idolize a particular hero of my class and constantly try to imitate their deeds.',
+          'I am always calm, no matter what the situation. I never raise my voice or lose my temper.'
+        ];
+      }
+    } else {
+      console.log('[Agent] No RAG personality context available, using defaults');
+      // Fallback to default traits
+      this.characterData.personalityTraits = [
+        'I idolize a particular hero of my class and constantly try to imitate their deeds.',
+        'I am always calm, no matter what the situation. I never raise my voice or lose my temper.'
+      ];
+    }
     
     return {
       success: true,
@@ -358,15 +658,49 @@ export class CharacterGenerationAgent {
    * @returns {Promise<object>} Result of backstory generation
    */
   async generateBackstory() {
-    // TODO: Use RAG context and LLM to generate world-appropriate backstory
-    const backstories = [
-      `As a ${this.characterData.race} ${this.characterData.class}, I grew up in a small village where I always felt out of place. My desire for adventure led me to strike out on my own.`,
-      `My family has been ${this.characterData.background}s for generations, but I chose a different path. Now I seek fortune and glory as an adventurer.`,
-      `I was trained by the masters of a distant monastery, where I learned to harness my natural talents as a ${this.characterData.class}.`
-    ];
+    // Use RAG context to generate world-appropriate backstory if available
+    const backstoryContext = this.ragContext.find(ctx => ctx.type === 'backstories');
     
-    const backstory = backstories[Math.floor(Math.random() * backstories.length)];
-    this.characterData.backstory = backstory;
+    if (backstoryContext && backstoryContext.documents.length > 0) {
+      console.log('[Agent] Using RAG context to generate backstory');
+      
+      // Build a prompt for the LLM to generate a backstory
+      const contextText = backstoryContext.documents.map(doc => doc.content).join('\n\n');
+      const prompt = `Based on the following world context, generate a short (2-3 sentence) character backstory that fits this setting. The character is a ${this.characterData.race} ${this.characterData.class} with a background as a ${this.characterData.background}. Make the backstory unique and appropriate for this world.
+
+World Context:
+${contextText}
+
+Character Backstory:`;
+      
+      try {
+        // Import getLMStudioResponse for LLM-based generation
+        const { getLMStudioResponse } = await import('./lmstudio.js');
+        const response = await getLMStudioResponse(prompt);
+        
+        // Clean up the response to get a clean backstory
+        this.characterData.backstory = response.trim()
+          .split('\n')[0] // Take first line as main backstory
+          .replace(/^Character Backstory:\s*/i, '') // Remove prompt prefix if present
+          .trim();
+        
+        if (!this.characterData.backstory || this.characterData.backstory.length < 20) {
+          // Fallback to default if parsing fails
+          this.characterData.backstory = `My family has been ${this.characterData.background}s for generations, but I chose a different path. Now I seek fortune and glory as an adventurer.`;
+          console.log('[Agent] Could not parse backstory from LLM response, using defaults');
+        } else {
+          console.log(`[Agent] Generated backstory from RAG context (${this.characterData.backstory.length} chars)`);
+        }
+      } catch (error) {
+        console.error('[Agent] Error generating backstory from RAG context:', error);
+        // Fallback to default if LLM fails
+        this.characterData.backstory = `My family has been ${this.characterData.background}s for generations, but I chose a different path. Now I seek fortune and glory as an adventurer.`;
+      }
+    } else {
+      console.log('[Agent] No RAG backstory context available, using defaults');
+      // Fallback to default backstories
+      this.characterData.backstory = `My family has been ${this.characterData.background}s for generations, but I chose a different path. Now I seek fortune and glory as an adventurer.`;
+    }
     
     return {
       success: true,

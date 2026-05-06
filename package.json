@@ -16,7 +16,10 @@
     "test-rag": "node tests/test-rag.js",
     "test-dice": "node tests/test-dice.js",
     "test-tools": "node tests/test-tools.js",
-    "test-character": "node tests/test-character.js"
+    "test-character": "node tests/test-character.js",
+    "test-character-dice-integration": "node tests/test-character-dice-integration.js",
+    "test-character-rag-integration": "node tests/test-character-rag-integration.js",
+    "test-character-with-rag": "node tests/test-character-with-rag.js"
   },
   "author": "Shay DeWael",
   "license": "MIT",
