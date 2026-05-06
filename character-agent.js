@@ -32,20 +32,16 @@ export class CharacterGenerationAgent {
       race: null,
       class: null,
       background: null,
-      abilityScores: {
-        strength: null,
-        dexterity: null,
-        constitution: null,
-        intelligence: null,
-        wisdom: null,
-        charisma: null
-      },
+      abilityScores: {}, // Will be populated from RAG context or defaults
       skills: [],
       equipment: [],
       personalityTraits: [],
       backstory: '',
       otherNotes: []
     };
+    
+    // Attribute system information (extracted from RAG context)
+    this.attributeSystem = null;
     
     // RAG context for world-building consistency
     this.ragContext = [];
@@ -67,24 +63,20 @@ export class CharacterGenerationAgent {
    */
   async initialize(specifications = '', ragSource) {
     this.currentStep = 0;
+    // Reset character data with empty abilityScores (will be populated from RAG context)
     this.characterData = {
       race: null,
       class: null,
       background: null,
-      abilityScores: {
-        strength: null,
-        dexterity: null,
-        constitution: null,
-        intelligence: null,
-        wisdom: null,
-        charisma: null
-      },
+      abilityScores: {},
       skills: [],
       equipment: [],
       personalityTraits: [],
       backstory: '',
       otherNotes: []
     };
+    // Reset attribute system (will be extracted from RAG context)
+    this.attributeSystem = null;
     this.ragContext = [];
     this.diceRolls = [];
     this.stepHistory = [];
@@ -136,7 +128,32 @@ export class CharacterGenerationAgent {
           console.log(`[Agent] Retrieved ${backgroundContext.length} background context document(s)`);
         }
         
-        // Get ability score generation rules
+        // Get attribute/ability score system from RAG context (MUST be done before ability scores are filled)
+        const attributeSystem = await this.extractAttributeSystem(sourceName);
+        if (attributeSystem && attributeSystem.attributes && attributeSystem.attributes.length > 0) {
+          // Initialize abilityScores with the extracted attributes
+          this.characterData.abilityScores = {};
+          for (const attr of attributeSystem.attributes) {
+            this.characterData.abilityScores[attr] = null;
+          }
+          this.attributeSystem = attributeSystem;
+          console.log(`[Agent] Using ${attributeSystem.name} attribute system: ${Object.keys(this.characterData.abilityScores).join(', ')}`);
+        } else {
+          // Fallback to a minimal default if no RAG context available
+          // Use a simple generic system that can work with any dice method
+          this.attributeSystem = {
+            name: 'Generic System',
+            attributes: ['Attribute 1', 'Attribute 2', 'Attribute 3'],
+            diceMethod: '4d6dl1'
+          };
+          this.characterData.abilityScores = {};
+          for (const attr of this.attributeSystem.attributes) {
+            this.characterData.abilityScores[attr] = null;
+          }
+          console.log(`[Agent] No attribute system found in RAG context, using generic fallback with ${this.attributeSystem.attributes.length} attributes`);
+        }
+        
+        // Get ability score generation rules (for dice method)
         const abilityContext = await queryVectorStore(sourceName, 'How do ability scores work in this system? What is the standard method for generating them?', 2);
         if (abilityContext.length > 0) {
           this.ragContext.push({
@@ -168,10 +185,29 @@ export class CharacterGenerationAgent {
         
       } catch (error) {
         console.error('[Agent] Error retrieving RAG context:', error);
-        // Continue with default generation if RAG fails
+        // Fallback to generic system if RAG fails
+        this.attributeSystem = {
+          name: 'Generic System',
+          attributes: ['Attribute 1', 'Attribute 2', 'Attribute 3'],
+          diceMethod: '4d6dl1'
+        };
+        this.characterData.abilityScores = {};
+        for (const attr of this.attributeSystem.attributes) {
+          this.characterData.abilityScores[attr] = null;
+        }
       }
     } else {
-      console.log('[Agent] No RAG source specified, using default world rules');
+      console.log('[Agent] No RAG source specified, using generic fallback system');
+      // Fallback to a minimal default if no RAG source provided
+      this.attributeSystem = {
+        name: 'Generic System',
+        attributes: ['Attribute 1', 'Attribute 2', 'Attribute 3'],
+        diceMethod: '4d6dl1'
+      };
+      this.characterData.abilityScores = {};
+      for (const attr of this.attributeSystem.attributes) {
+        this.characterData.abilityScores[attr] = null;
+      }
     }
     
     console.log('Character generation agent initialized');
@@ -251,6 +287,129 @@ export class CharacterGenerationAgent {
     
     // Default: Generate additional details
     return await this.generateAdditionalDetails();
+  }
+  
+  /**
+   * Extract attribute system from RAG context
+   * @param {string} sourceName - Name of the RAG source
+   * @returns {Promise<object|null>} Attribute system information or null if not found
+   */
+  async extractAttributeSystem(sourceName) {
+    try {
+      // Query for attribute/ability score system
+      const query = 'What are the attributes or ability scores in this system? List all attribute names and their descriptions.';
+      const docs = await queryVectorStore(sourceName, query, 3);
+      
+      if (docs.length === 0) {
+        console.log('[Agent] No attribute system found in RAG context');
+        return null;
+      }
+      
+      // Build a prompt for the LLM to extract attributes from context
+      const contextText = docs.map(doc => doc.content).join('\n\n');
+      const prompt = `Based on the following world context, identify all attributes or ability scores used in this system. 
+Return only the attribute names as a comma-separated list (e.g., "CHARISMA, AGILITY, STRENGTH, EDUCATION").
+Do not include any descriptions or explanations.
+
+World Context:
+${contextText}
+
+Attributes:`;
+      
+      // Import getLMStudioResponse for LLM-based extraction
+      const { getLMStudioResponse } = await import('./lmstudio.js');
+      const response = await getLMStudioResponse(prompt);
+      
+      // Parse the response to extract attribute names
+      const attributes = response.split(',')
+        .map(attr => attr.trim().toUpperCase())
+        .filter(attr => {
+          // Filter out empty strings and common non-attribute words
+          return attr.length > 2 && 
+                 !attr.toLowerCase().includes('not found') && 
+                 !attr.toLowerCase().includes('no attributes') &&
+                 !attr.toLowerCase().includes('attributes are') &&
+                 !attr.toLowerCase().includes('the attributes');
+        });
+      
+      if (attributes.length === 0) {
+        console.log('[Agent] Could not parse attributes from LLM response, using defaults');
+        return null;
+      }
+      
+      console.log(`[Agent] Extracted ${attributes.length} attributes from RAG context: ${attributes.join(', ')}`);
+      
+      // Determine dice method for this attribute system
+      const diceMethodQuery = 'What is the standard method for generating attribute scores in this system? Answer with dice notation like "4d6dl1", "3d6", etc. If attributes are assigned directly (like 1-4), say "direct assignment".';
+      const diceDocs = await queryVectorStore(sourceName, diceMethodQuery, 2);
+      
+      let diceMethod = '4d6dl1'; // Default
+      if (diceDocs.length > 0) {
+        const diceContext = diceDocs.map(doc => doc.content).join('\n\n');
+        
+        // Check for direct assignment indicators in the context itself first
+        const hasDirectAssignmentIndicators = 
+          diceContext.toLowerCase().includes('assign') ||
+          diceContext.toLowerCase().includes('put one of these numbers into each') ||
+          diceContext.toLowerCase().includes('1, 2, 3, and 4') ||
+          diceContext.toLowerCase().includes('score between 1 and');
+        
+        if (hasDirectAssignmentIndicators) {
+          diceMethod = 'direct';
+          console.log(`[Agent] Using attribute generation method: direct assignment (detected from context)`);
+        } else {
+          const dicePrompt = `Based on the following context, what is the standard method for generating attribute scores? 
+Answer with:
+- Dice notation like "4d6dl1", "3d6" if rolling dice
+- "direct assignment" if players assign values directly (like 1-4 scale)
+- "point buy" if using point buy system
+
+Context:
+${diceContext}
+
+Dice method:`;
+          
+          try {
+            const diceResponse = await getLMStudioResponse(dicePrompt);
+            
+            // Check for direct assignment
+            if (diceResponse.toLowerCase().includes('direct assignment') || 
+                diceResponse.toLowerCase().includes('assign')) {
+              diceMethod = 'direct';
+              console.log(`[Agent] Using attribute generation method: direct assignment`);
+            } else {
+              const parsedMethod = diceResponse.match(/(\d+d\d+(dl\d+)?)/i);
+              if (parsedMethod) {
+                diceMethod = parsedMethod[0];
+                console.log(`[Agent] Using attribute generation method: ${diceMethod}`);
+              }
+            }
+          } catch (error) {
+            console.error('[Agent] Error determining dice method:', error);
+          }
+        }
+      }
+      
+      // Determine system name based on attributes
+      let systemName = 'Custom';
+      if (attributes.length === 4 && 
+          attributes.includes('CHARISMA') && 
+          attributes.includes('AGILITY') && 
+          attributes.includes('STRENGTH') && 
+          attributes.includes('EDUCATION')) {
+        systemName = 'CASE File';
+      }
+      
+      return {
+        name: systemName,
+        attributes,
+        diceMethod
+      };
+    } catch (error) {
+      console.error('[Agent] Error extracting attribute system from RAG context:', error);
+      // Return null to indicate extraction failed - caller should handle fallback
+      return null;
+    }
   }
   
   /**
@@ -386,55 +545,58 @@ Available classes:`;
   async calculateAbilityScores() {
     const scores = {};
     
-    // Check if RAG context specifies a different ability score generation method
-    const abilityContext = this.ragContext.find(ctx => ctx.type === 'ability_scores');
-    let method = '4d6dl1'; // Default: 4d6 drop lowest
-    
-    if (abilityContext && abilityContext.documents.length > 0) {
-      console.log('[Agent] Using RAG context to determine ability score generation method');
-      
-      const contextText = abilityContext.documents.map(doc => doc.content).join('\n\n');
-      const prompt = `Based on the following world context, what is the standard method for generating ability scores? Answer with a dice notation like "4d6dl1", "3d6", "point buy", etc.
-      
-World Context:
-${contextText}
-
-Ability score generation method:`;
-      
-      try {
-        // Import getLMStudioResponse for LLM-based extraction
-        const { getLMStudioResponse } = await import('./lmstudio.js');
-        const response = await getLMStudioResponse(prompt);
-        
-        // Parse the response to extract dice notation
-        const parsedMethod = response.match(/(\d+d\d+(dl\d+)?)/i);
-        if (parsedMethod) {
-          method = parsedMethod[0];
-          console.log(`[Agent] Using ability score generation method: ${method}`);
-        } else {
-          console.log('[Agent] Could not parse method from LLM response, using default');
-        }
-      } catch (error) {
-        console.error('[Agent] Error determining ability score method:', error);
-      }
+    // Verify we have an attribute system - it should be set during initialization
+    if (!this.attributeSystem || !this.attributeSystem.diceMethod) {
+      console.warn('[Agent] No attribute system found, using generic fallback');
+      this.attributeSystem = {
+        name: 'Generic System',
+        attributes: Object.keys(this.characterData.abilityScores),
+        diceMethod: '4d6dl1'
+      };
     }
     
-    // Roll dice for each ability score
-    for (const [scoreName, _] of Object.entries(this.characterData.abilityScores)) {
-      const rollResult = this.rollDiceForAbilityScore(method);
+    const method = this.attributeSystem.diceMethod;
+    console.log(`[Agent] Using ${this.attributeSystem.name} attribute system with method: ${method}`);
+    
+    // Roll dice for each attribute in the system (or use direct assignment)
+    const attributes = this.attributeSystem.attributes;
+    
+    if (method === 'direct') {
+      console.log('[Agent] Using direct assignment for attribute scores');
       
-      if (rollResult.error) {
-        return {
-          success: false,
-          error: `Failed to calculate ${scoreName}: ${rollResult.error}`
-        };
+      // For direct assignment systems, generate random values within the valid range
+      // CASE File uses 1-4 scale
+      const minScore = this.attributeSystem && this.attributeSystem.name === 'CASE File' ? 1 : 3;
+      const maxScore = this.attributeSystem && this.attributeSystem.name === 'CASE File' ? 4 : 18;
+      
+      for (const attrName of attributes) {
+        // Generate a random score within the valid range
+        const score = Math.floor(Math.random() * (maxScore - minScore + 1)) + minScore;
+        scores[attrName] = score;
+        
+        this.diceRolls.push({
+          notation: 'direct',
+          result: { total: score, rolls: [], dropped: 0 }
+        });
       }
-      
-      scores[scoreName] = rollResult.total;
-      this.diceRolls.push({
-        notation: method,
-        result: rollResult
-      });
+    } else {
+      // Use dice rolling for other systems
+      for (const attrName of attributes) {
+        const rollResult = this.rollDiceForAbilityScore(method);
+        
+        if (rollResult.error) {
+          return {
+            success: false,
+            error: `Failed to calculate ${attrName}: ${rollResult.error}`
+          };
+        }
+        
+        scores[attrName] = rollResult.total;
+        this.diceRolls.push({
+          notation: method,
+          result: rollResult
+        });
+      }
     }
     
     this.characterData.abilityScores = scores;
@@ -442,7 +604,7 @@ Ability score generation method:`;
     return {
       success: true,
       action: 'calculate_ability_scores',
-      result: `Ability scores calculated using ${method} method`,
+      result: `Attribute scores calculated using ${method} method`,
       details: {
         scores,
         diceRolls: this.diceRolls.length
@@ -779,17 +941,56 @@ Character Backstory:`;
     if (!this.characterData.class) issues.push('Missing class');
     if (!this.characterData.background) issues.push('Missing background');
     
-    // Validate ability scores (should be between 3-18 for standard rolling)
+    // Validate attribute/ability scores based on the system being used
     const scores = this.characterData.abilityScores;
-    for (const [name, score] of Object.entries(scores)) {
-      if (score < 3 || score > 18) {
-        issues.push(`${name} score ${score} is outside valid range (3-18)`);
+    const attributes = this.attributeSystem ? this.attributeSystem.attributes : Object.keys(scores);
+    
+    for (const attrName of attributes) {
+      const score = scores[attrName];
+      
+      if (score === null || score === undefined) {
+        issues.push(`${attrName} score is missing`);
+        continue;
+      }
+      
+      // Validate based on attribute system
+      let isValid = true;
+      let validRange = '';
+      
+      if (this.attributeSystem && this.attributeSystem.name === 'CASE File') {
+        // CASE file uses 1-4 scale
+        if (score < 1 || score > 4) {
+          isValid = false;
+          validRange = '(1-4)';
+        }
+      } else if (this.attributeSystem && this.attributeSystem.diceMethod === 'direct') {
+        // Direct assignment systems - check for reasonable range
+        // Most direct assignment systems use small integer ranges like 1-5 or 1-10
+        if (score < 1 || score > 20) {
+          isValid = false;
+          validRange = '(1-20)';
+        }
+      } else {
+        // Default: assume dice-generated scores in 3-18 range
+        if (score < 3 || score > 18) {
+          isValid = false;
+          validRange = '(3-18)';
+        }
+      }
+      
+      if (!isValid) {
+        issues.push(`${attrName} score ${score} is outside valid range ${validRange}`);
       }
     }
     
-    // Check dice rolls are recorded
-    if (this.diceRolls.length === 0) {
-      issues.push('No dice rolls recorded for ability scores');
+    // Check dice rolls are recorded (only required for systems that use dice)
+    const usesDice = this.attributeSystem && 
+                     this.attributeSystem.diceMethod !== 'direct' &&
+                     !this.attributeSystem.name.includes('CASE File') &&
+                     !this.attributeSystem.name.includes('Generic System');
+    
+    if (usesDice && this.diceRolls.length === 0) {
+      issues.push('No dice rolls recorded for attribute scores');
     }
     
     return {
@@ -803,7 +1004,7 @@ Character Backstory:`;
    * @returns {object} Current character data and generation status
    */
   getCharacterSnapshot() {
-    return {
+    const snapshot = {
       ...this.characterData,
       diceRolls: this.diceRolls,
       stepHistory: this.stepHistory,
@@ -811,6 +1012,17 @@ Character Backstory:`;
       currentStep: this.currentStep,
       maxSteps: this.maxSteps
     };
+    
+    // Include attribute system info if available
+    if (this.attributeSystem) {
+      snapshot.attributeSystem = {
+        name: this.attributeSystem.name,
+        attributes: this.attributeSystem.attributes,
+        diceMethod: this.attributeSystem.diceMethod
+      };
+    }
+    
+    return snapshot;
   }
   
   /**
@@ -829,12 +1041,36 @@ Character Backstory:`;
     lines.push(`**Background:** ${this.characterData.background}`);
     lines.push('');
     
-    // Ability scores
-    lines.push('### Ability Scores');
-    for (const [name, score] of Object.entries(this.characterData.abilityScores)) {
-      const modifier = Math.floor((score - 10) / 2);
-      const sign = modifier >= 0 ? '+' : '';
-      lines.push(`- **${name}:** ${score} (${sign}${modifier})`);
+    // Attribute/Ability Scores - use attribute system if available
+    const attributes = this.attributeSystem ? this.attributeSystem.attributes : Object.keys(this.characterData.abilityScores);
+    
+    if (this.attributeSystem) {
+      lines.push(`### ${this.attributeSystem.name} Attributes`);
+    } else {
+      lines.push('### Ability Scores');
+    }
+    
+    for (const attrName of attributes) {
+      const score = this.characterData.abilityScores[attrName];
+      
+      // Determine if this system uses modifiers
+      let showModifier = true;
+      
+      if (this.attributeSystem && 
+          (this.attributeSystem.name === 'CASE File' || 
+           this.attributeSystem.diceMethod === 'direct')) {
+        // Systems without dice-based generation don't use modifiers
+        showModifier = false;
+      }
+      
+      let modifierText = '';
+      if (showModifier) {
+        const modifier = Math.floor((score - 10) / 2);
+        const sign = modifier >= 0 ? '+' : '';
+        modifierText = ` (${sign}${modifier})`;
+      }
+      
+      lines.push(`- **${attrName}:** ${score}${modifierText}`);
     }
     lines.push('');
     
