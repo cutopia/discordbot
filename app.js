@@ -504,15 +504,22 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
             
             try {
               if (!result.success) {
-                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
-                  method: 'PATCH',
-                  body: {
-                    content: `❌ Character generation failed: ${result.error}`,
-                    allowed_mentions: {
-                      parse: ['users', 'roles']
+                // Split error message and use pagination if needed
+                const chunks = splitMessage(`❌ Character generation failed: ${result.error}`);
+                
+                if (chunks.length > 1) {
+                  await sendPaginatedMessage(channelId, chunks, DiscordRequest, process.env.DISCORD_APP_ID, token);
+                } else {
+                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                    method: 'PATCH',
+                    body: {
+                      content: chunks[0],
+                      allowed_mentions: {
+                        parse: ['users', 'roles']
+                      }
                     }
-                  }
-                });
+                  });
+                }
                 return;
               }
               
@@ -529,31 +536,30 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
               // Split the character sheet content if it exceeds Discord's limit
               const chunks = splitMessage(responseContent);
               
-              // Send all chunks except the last one via webhook PATCH
-              for (let i = 0; i < chunks.length - 1; i++) {
+              // If we have multiple chunks, use pagination system
+              if (chunks.length > 1) {
+                console.log(`Sending paginated character sheet with ${chunks.length} pages...`);
+                
+                // Send first chunk with pagination controls
+                await sendPaginatedMessage(channelId, chunks, DiscordRequest, process.env.DISCORD_APP_ID, token);
+                
+                console.log('Successfully sent paginated character sheet');
+              } else {
+                // Single chunk - edit original message directly
+                console.log('Sending single chunk character sheet...');
+                
                 await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
                   method: 'PATCH',
                   body: {
-                    content: chunks[i],
+                    content: chunks[0],
                     allowed_mentions: {
                       parse: ['users', 'roles']
                     }
                   }
                 });
+                
+                console.log('Successfully edited message with character sheet');
               }
-              
-              // Send the last chunk and log success
-              await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
-                method: 'PATCH',
-                body: {
-                  content: chunks[chunks.length - 1],
-                  allowed_mentions: {
-                    parse: ['users', 'roles']
-                  }
-                }
-              });
-              
-              console.log('Successfully sent character sheet');
             } catch (editError) {
               console.error('Error sending character sheet:', editError);
               
@@ -566,21 +572,30 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 console.warn('Bot lacks permission to post in this channel. The command may have been invoked in a DM or restricted channel.');
               }
               
-              // Fallback to regular message sending only if we have a valid server channel
+              // Fallback to pagination if we have a valid server channel
               if (channelId && !isPermissionError) {
                 try {
                   const chunks = splitMessage(`Character generation failed: ${result.error || 'Unknown error'}`);
                   
-                  for (let i = 0; i < chunks.length; i++) {
+                  if (chunks.length > 1) {
+                    console.log(`Sending paginated fallback message with ${chunks.length} pages...`);
+                    
+                    await sendPaginatedMessage(channelId, chunks, DiscordRequest, process.env.DISCORD_APP_ID, token);
+                    
+                    console.log('Successfully sent paginated fallback message');
+                  } else {
+                    // Single chunk - send as regular message
                     await DiscordRequest(`channels/${channelId}/messages`, {
                       method: 'POST',
                       body: {
-                        content: chunks[i],
+                        content: chunks[0],
                         allowed_mentions: {
                           parse: ['users', 'roles']
                         }
                       }
                     });
+                    
+                    console.log('Successfully sent fallback message');
                   }
                 } catch (postError) {
                   console.error('Failed to send fallback message:', postError);
@@ -606,51 +621,26 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 return;
               }
               
-              // Edit the original deferred message with the first chunk
-              await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
-                method: 'PATCH',
-                body: {
-                  content: chunks[0],
-                  allowed_mentions: {
-                    parse: ['users', 'roles']
-                  }
-                }
-              });
-              
-              // Send additional chunks as follow-up messages if needed
-              for (let i = 1; i < chunks.length; i++) {
-                try {
-                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages`, {
-                    method: 'POST',
-                    body: {
-                      content: chunks[i],
-                      allowed_mentions: {
-                        parse: ['users', 'roles']
-                      }
-                    }
-                  });
-                  console.log(`Sent follow-up error message chunk ${i + 1}/${chunks.length}`);
-                } catch (postError) {
-                  console.error(`Failed to send follow-up error message chunk ${i + 1}:`, postError);
-                  
-                  // If webhook fails, try channel API as fallback
-                  if (channelId && !isPermissionError) {
-                    try {
-                      await DiscordRequest(`channels/${channelId}/messages`, {
-                        method: 'POST',
-                        body: {
-                          content: chunks[i],
-                          allowed_mentions: {
-                            parse: ['users', 'roles']
-                          }
-                        }
-                      });
-                      console.log(`Sent follow-up error message chunk ${i + 1}/${chunks.length} via channel API`);
-                    } catch (channelError) {
-                      console.error(`Failed to send follow-up error message chunk ${i + 1} via channel API:`, channelError);
+              // Use pagination for error messages too if multiple chunks
+              if (chunks.length > 1) {
+                console.log(`Sending paginated error message with ${chunks.length} pages...`);
+                
+                await sendPaginatedMessage(channelId, chunks, DiscordRequest, process.env.DISCORD_APP_ID, token);
+                
+                console.log('Successfully sent paginated error message');
+              } else {
+                // Single chunk - edit original message directly
+                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                  method: 'PATCH',
+                  body: {
+                    content: chunks[0],
+                    allowed_mentions: {
+                      parse: ['users', 'roles']
                     }
                   }
-                }
+                });
+                
+                console.log('Successfully edited message with error');
               }
             } catch (editError) {
               console.error('Error editing message with error:', editError);
