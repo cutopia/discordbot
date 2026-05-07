@@ -77,6 +77,7 @@ export class CharacterGenerationAgent {
     };
     // Reset attribute system (will be extracted from RAG context)
     this.attributeSystem = null;
+    this.ragSourceName = null;  // Store the source name for later use
     this.ragContext = [];
     this.diceRolls = [];
     this.stepHistory = [];
@@ -96,10 +97,10 @@ export class CharacterGenerationAgent {
         await getOrCreateVectorStore(ragSource);
         
         // Use the correct source name (filename without path and extension)
-        const sourceName = ragSource.replace(/^.*[\\/]/, '').replace(/\.pdf$/, '');
+        this.ragSourceName = ragSource.replace(/^.*[\\/]/, '').replace(/\.pdf$/, '');
         
         // Get all available races in this world
-        const raceContext = await queryVectorStore(sourceName, 'What races are available in this world? List all playable races with their key characteristics.', 3);
+        const raceContext = await queryVectorStore(this.ragSourceName, 'What races are available in this world? List all playable races with their key characteristics.', 3);
         if (raceContext.length > 0) {
           this.ragContext.push({
             type: 'races',
@@ -109,7 +110,7 @@ export class CharacterGenerationAgent {
         }
         
         // Get all available classes in this world
-        const classContext = await queryVectorStore(sourceName, 'What classes are available in this world? List all playable classes with their key features.', 3);
+        const classContext = await queryVectorStore(this.ragSourceName, 'What classes are available in this world? List all playable classes with their key features.', 3);
         if (classContext.length > 0) {
           this.ragContext.push({
             type: 'classes',
@@ -119,7 +120,7 @@ export class CharacterGenerationAgent {
         }
         
         // Get all available backgrounds in this world
-        const backgroundContext = await queryVectorStore(sourceName, 'What backgrounds are available for characters in this setting?', 3);
+        const backgroundContext = await queryVectorStore(this.ragSourceName, 'What backgrounds are available for characters in this setting?', 3);
         if (backgroundContext.length > 0) {
           this.ragContext.push({
             type: 'backgrounds',
@@ -129,7 +130,7 @@ export class CharacterGenerationAgent {
         }
         
         // Get attribute/ability score system from RAG context (MUST be done before ability scores are filled)
-        const attributeSystem = await this.extractAttributeSystem(sourceName);
+        const attributeSystem = await this.extractAttributeSystem(this.ragSourceName);
         if (attributeSystem && attributeSystem.attributes && attributeSystem.attributes.length > 0) {
           // Initialize abilityScores with the extracted attributes
           this.characterData.abilityScores = {};
@@ -154,7 +155,7 @@ export class CharacterGenerationAgent {
         }
         
         // Get ability score generation rules (for dice method)
-        const abilityContext = await queryVectorStore(sourceName, 'How do ability scores work in this system? What is the standard method for generating them?', 2);
+        const abilityContext = await queryVectorStore(this.ragSourceName, 'How do ability scores work in this system? What is the standard method for generating them?', 2);
         if (abilityContext.length > 0) {
           this.ragContext.push({
             type: 'ability_scores',
@@ -164,7 +165,7 @@ export class CharacterGenerationAgent {
         }
         
         // Get personality trait guidelines for this world
-        const personalityContext = await queryVectorStore(sourceName, 'What personality traits would be appropriate for characters in this setting?', 2);
+        const personalityContext = await queryVectorStore(this.ragSourceName, 'What personality traits would be appropriate for characters in this setting?', 2);
         if (personalityContext.length > 0) {
           this.ragContext.push({
             type: 'personality',
@@ -174,7 +175,7 @@ export class CharacterGenerationAgent {
         }
         
         // Get backstory guidelines for this world
-        const backstoryContext = await queryVectorStore(sourceName, 'What kinds of backstories are common in this world setting?', 2);
+        const backstoryContext = await queryVectorStore(this.ragSourceName, 'What kinds of backstories are common in this world setting?', 2);
         if (backstoryContext.length > 0) {
           this.ragContext.push({
             type: 'backstories',
@@ -390,14 +391,33 @@ Dice method:`;
         }
       }
       
-      // Determine system name based on attributes
+      // Determine system name based on context (not hardcoded attribute names)
       let systemName = 'Custom';
-      if (attributes.length === 4 && 
-          attributes.includes('CHARISMA') && 
-          attributes.includes('AGILITY') && 
-          attributes.includes('STRENGTH') && 
-          attributes.includes('EDUCATION')) {
-        systemName = 'CASE File';
+      
+      // Extract system name from RAG context if available
+      const systemNameQuery = 'What is the name of this game system or ruleset?';
+      const systemDocs = await queryVectorStore(sourceName, systemNameQuery, 2);
+      if (systemDocs.length > 0) {
+        const systemContext = systemDocs.map(doc => doc.content).join('\n\n');
+        const systemPrompt = `Based on the following context, what is the name of this game system or ruleset?
+Return only the system name.
+
+Context:
+${systemContext}
+
+System name:`;
+        
+        try {
+          const { getLMStudioResponse } = await import('./lmstudio.js');
+          const response = await getLMStudioResponse(systemPrompt);
+          // Clean up the response to get just the system name
+          const cleanedName = response.trim().split('\n')[0].replace(/^[^a-zA-Z]*/, '').replace(/[^a-zA-Z0-9 ]*$/, '');
+          if (cleanedName && cleanedName.length > 1) {
+            systemName = cleanedName;
+          }
+        } catch (error) {
+          console.log('[Agent] Could not extract system name from context');
+        }
       }
       
       return {
@@ -612,9 +632,45 @@ Available classes:`;
       console.log('[Agent] Using direct assignment for attribute scores');
       
       // For direct assignment systems, generate random values within the valid range
-      // CASE File uses 1-4 scale
-      const minScore = this.attributeSystem && this.attributeSystem.name === 'CASE File' ? 1 : 3;
-      const maxScore = this.attributeSystem && this.attributeSystem.name === 'CASE File' ? 4 : 18;
+      // Use system-specific ranges if available, otherwise use reasonable defaults
+      let minScore = 1;
+      let maxScore = 6;
+      
+      if (this.attributeSystem && this.attributeSystem.name) {
+        // Query RAG context for the valid score range for this system
+        const rangeQuery = `What is the valid score range for ${this.attributeSystem.name}? What are the minimum and maximum possible scores?`;
+        try {
+          const { getLMStudioResponse } = await import('./lmstudio.js');
+          // Use the stored source name from initialization
+          const sourceName = this.ragSourceName || 'character_system';
+          const rangeDocs = await queryVectorStore(sourceName, rangeQuery, 2);
+          if (rangeDocs.length > 0) {
+            const rangeContext = rangeDocs.map(doc => doc.content).join('\n\n');
+            const rangePrompt = `Based on the following context for ${this.attributeSystem.name}, what is the valid score range?
+Answer with: "minimum X, maximum Y" where X and Y are numbers.
+
+Context:
+${rangeContext}
+
+Score range:`;
+            
+            try {
+              const rangeResponse = await getLMStudioResponse(rangePrompt);
+              // Parse response like "minimum 1, maximum 4"
+              const rangeMatch = rangeResponse.match(/minimum\s+(\d+).*maximum\s+(\d+)/i);
+              if (rangeMatch) {
+                minScore = parseInt(rangeMatch[1], 10);
+                maxScore = parseInt(rangeMatch[2], 10);
+                console.log(`[Agent] Using score range ${minScore}-${maxScore} from RAG context`);
+              }
+            } catch (error) {
+              console.log('[Agent] Could not extract score range from context');
+            }
+          }
+        } catch (error) {
+          console.log('[Agent] Error querying score range:', error);
+        }
+      }
       
       for (const attrName of attributes) {
         // Generate a random score within the valid range
@@ -1081,13 +1137,7 @@ Character Backstory:`;
       let isValid = true;
       let validRange = '';
       
-      if (this.attributeSystem && this.attributeSystem.name === 'CASE File') {
-        // CASE file uses 1-4 scale
-        if (score < 1 || score > 4) {
-          isValid = false;
-          validRange = '(1-4)';
-        }
-      } else if (this.attributeSystem && this.attributeSystem.diceMethod === 'direct') {
+      if (this.attributeSystem && this.attributeSystem.diceMethod === 'direct') {
         // Direct assignment systems - check for reasonable range
         // Most direct assignment systems use small integer ranges like 1-5 or 1-10
         if (score < 1 || score > 20) {
@@ -1109,9 +1159,7 @@ Character Backstory:`;
     
     // Check dice rolls are recorded (only required for systems that use dice)
     const usesDice = this.attributeSystem && 
-                     this.attributeSystem.diceMethod !== 'direct' &&
-                     !this.attributeSystem.name.includes('CASE File') &&
-                     !this.attributeSystem.name.includes('Generic System');
+                     this.attributeSystem.diceMethod !== 'direct';
     
     if (usesDice && this.diceRolls.length === 0) {
       issues.push('No dice rolls recorded for attribute scores');
@@ -1181,8 +1229,7 @@ Character Backstory:`;
       let showModifier = true;
       
       if (this.attributeSystem && 
-          (this.attributeSystem.name === 'CASE File' || 
-           this.attributeSystem.diceMethod === 'direct')) {
+          this.attributeSystem.diceMethod === 'direct') {
         // Systems without dice-based generation don't use modifiers
         showModifier = false;
       }
