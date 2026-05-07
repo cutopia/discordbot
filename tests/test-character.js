@@ -91,13 +91,13 @@ describe('CharacterGenerationAgent', () => {
     });
   });
   
-  describe('determineRace', () => {
+  describe('determineCharacterFeatures', () => {
     it('should select a race from available options', async () => {
       const agent = new CharacterGenerationAgent();
       
       // Test multiple times to ensure variety
       for (let i = 0; i < 20; i++) {
-        await agent.determineRace();
+        await agent.determineCharacterFeatures();
         
         assert.ok(agent.characterData.race);
         assert.ok(['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'].includes(agent.characterData.race));
@@ -105,13 +105,13 @@ describe('CharacterGenerationAgent', () => {
     });
   });
   
-  describe('determineClass', () => {
+  describe('determineCharacterClass', () => {
     it('should select a class from available options', async () => {
       const agent = new CharacterGenerationAgent();
       
       // Test multiple times to ensure variety
       for (let i = 0; i < 20; i++) {
-        await agent.determineClass();
+        await agent.determineCharacterClass();
         
         assert.ok(agent.characterData.class);
         assert.ok(['Fighter', 'Wizard', 'Cleric', 'Rogue', 'Barbarian', 'Bard', 'Paladin', 'Ranger'].includes(agent.characterData.class));

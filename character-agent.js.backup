@@ -254,11 +254,11 @@ export class CharacterGenerationAgent {
   async executeGenerationStep() {
     // Step 1-2: Determine race and class if not specified
     if (!this.characterData.race) {
-      return await this.determineCharacterFeatures();
+      return await this.determineRace();
     }
     
     if (!this.characterData.class) {
-      return await this.determineCharacterClass();
+      return await this.determineClass();
     }
     
     // Step 3: Calculate ability scores (always use dice)
@@ -425,107 +425,96 @@ Dice method:`;
    * Determine character race (Step 1)
    * @returns {Promise<object>} Result of race determination
    */
-  /**
-   * Determine character features (Step 1)
-   * This function determines what character features are relevant based on the loaded PDF file.
-   * It's system-agnostic and will adapt to whatever features exist in the RAG context.
-   * @returns {Promise<object>} Result of feature determination
-   */
-  async determineCharacterFeatures() {
-    // Extract available features from RAG context if available
-    let availableFeatures = [];
+  async determineRace() {
+    // Extract available races from RAG context if available
+    let availableRaces = [];
     
     const raceContext = this.ragContext.find(ctx => ctx.type === 'races');
     if (raceContext && raceContext.documents.length > 0) {
-      console.log('[Agent] Using RAG context to determine available character features');
+      console.log('[Agent] Using RAG context to determine available races');
       
-      // Build a prompt for the LLM to extract features from context
+      // Build a prompt for the LLM to extract races from context
       const contextText = raceContext.documents.map(doc => doc.content).join('\n\n');
-      const prompt = `Based on the following world context, list all playable character categories or types. These could be races, classes, species, factions, or any other defining characteristics.
-Return only the feature names as a comma-separated list.
-
+      const prompt = `Based on the following world context, list all playable races. Return only the race names as a comma-separated list.
+      
 World Context:
 ${contextText}
 
-Available features:`;
+Available races:`;
       
       try {
         // Import getLMStudioResponse for LLM-based extraction
         const { getLMStudioResponse } = await import('./lmstudio.js');
         const response = await getLMStudioResponse(prompt);
         
-        // Parse the response to extract feature names
-        availableFeatures = response.split(',')
-          .map(f => f.trim())
-          .filter(f => {
-            if (f.length === 0) return false;
+        // Parse the response to extract race names
+        availableRaces = response.split(',')
+          .map(r => r.trim())
+          .filter(r => {
+            if (r.length === 0) return false;
             
-            const lowerF = f.toLowerCase();
-            if (lowerF.includes('not found')) return false;
-            if (lowerF.includes('no features')) return false;
-            if (lowerF.includes('none provided')) return false;
-            if (lowerF.includes('crew position')) return false;
-            if (lowerF.includes('weapon')) return false;
+            const lowerR = r.toLowerCase();
+            if (lowerR.includes('not found')) return false;
+            if (lowerR.includes('no races')) return false;
+            if (lowerR.includes('none provided')) return false;
+            if (lowerR.includes('crew position')) return false;
+            if (lowerR.includes('weapon')) return false;
             
-            // Filter out lines that don't look like feature names
-            const wordCount = f.split(/\s+/).length;
-            if (wordCount > 4) return false;
+            // Filter out lines that don't look like race names
+            const wordCount = r.split(/\s+/).length;
+            if (wordCount > 3) return false;
             
-            if (!/[a-zA-Z]/.test(f)) return false;
-            if (/\d/.test(f)) return false;
+            if (!/[a-zA-Z]/.test(r)) return false;
+            if (/\d/.test(r)) return false;
             
             return true;
           });
         
-        if (availableFeatures.length === 0) {
+        if (availableRaces.length === 0) {
           // Fallback to default if parsing fails
-          availableFeatures = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'];
-          console.log('[Agent] Could not parse features from LLM response, using defaults');
+          availableRaces = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'];
+          console.log('[Agent] Could not parse races from LLM response, using defaults');
         } else {
-          console.log(`[Agent] Extracted ${availableFeatures.length} character features from RAG context: ${availableFeatures.join(', ')}`);
+          console.log(`[Agent] Extracted ${availableRaces.length} races from RAG context: ${availableRaces.join(', ')}`);
         }
       } catch (error) {
-        console.error('[Agent] Error extracting character features from RAG context:', error);
+        console.error('[Agent] Error extracting races from RAG context:', error);
         // Fallback to default if LLM fails
-        availableFeatures = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'];
+        availableRaces = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'];
       }
     } else {
-      console.log('[Agent] No RAG context available for character features, using defaults');
-      availableFeatures = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'];
+      console.log('[Agent] No RAG race context available, using defaults');
+      availableRaces = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Tiefling'];
     }
     
-    // Select a random feature from the available options
-    const selectedFeature = availableFeatures[Math.floor(Math.random() * availableFeatures.length)];
+    // Select a random race from the available options
+    const race = availableRaces[Math.floor(Math.random() * availableRaces.length)];
     
-    this.characterData.race = selectedFeature;
+    this.characterData.race = race;
     
     return {
       success: true,
-      action: 'determine_character_features',
-      result: `Selected character feature: ${selectedFeature}`,
-      featureType: 'race' // Keep for backward compatibility
+      action: 'determine_race',
+      result: `Selected race: ${race}`
     };
   }
-
+  
   /**
-   * Determine character class or role (Step 2)
-   * This function determines what character class/role is appropriate based on the loaded PDF file.
-   * It's system-agnostic and will adapt to whatever classes exist in the RAG context.
+   * Determine character class (Step 2)
    * @returns {Promise<object>} Result of class determination
    */
-  async determineCharacterClass() {
+  async determineClass() {
     // Extract available classes from RAG context if available
     let availableClasses = [];
     
     const classContext = this.ragContext.find(ctx => ctx.type === 'classes');
     if (classContext && classContext.documents.length > 0) {
-      console.log('[Agent] Using RAG context to determine available character classes');
+      console.log('[Agent] Using RAG context to determine available classes');
       
       // Build a prompt for the LLM to extract classes from context
       const contextText = classContext.documents.map(doc => doc.content).join('\n\n');
-      const prompt = `Based on the following world context, list all playable character classes or roles. These could be traditional RPG classes,职业, archetypes, or any other defining role types.
-Return only the class names as a comma-separated list.
-
+      const prompt = `Based on the following world context, list all playable classes. Return only the class names as a comma-separated list.
+      
 World Context:
 ${contextText}
 
@@ -551,7 +540,7 @@ Available classes:`;
             
             // Filter out lines that don't look like class names
             const wordCount = c.split(/\s+/).length;
-            if (wordCount > 4) return false;
+            if (wordCount > 3) return false;
             
             if (!/[a-zA-Z]/.test(c)) return false;
             if (/\d/.test(c)) return false;
@@ -564,10 +553,10 @@ Available classes:`;
           availableClasses = ['Fighter', 'Wizard', 'Cleric', 'Rogue', 'Barbarian', 'Bard', 'Paladin', 'Ranger'];
           console.log('[Agent] Could not parse classes from LLM response, using defaults');
         } else {
-          console.log(`[Agent] Extracted ${availableClasses.length} character classes from RAG context: ${availableClasses.join(', ')}`);
+          console.log(`[Agent] Extracted ${availableClasses.length} classes from RAG context: ${availableClasses.join(', ')}`);
         }
       } catch (error) {
-        console.error('[Agent] Error extracting character classes from RAG context:', error);
+        console.error('[Agent] Error extracting classes from RAG context:', error);
         // Fallback to default if LLM fails
         availableClasses = ['Fighter', 'Wizard', 'Cleric', 'Rogue', 'Barbarian', 'Bard', 'Paladin', 'Ranger'];
       }
@@ -577,18 +566,22 @@ Available classes:`;
     }
     
     // Select a random class from the available options
-    const selectedClass = availableClasses[Math.floor(Math.random() * availableClasses.length)];
+    const charClass = availableClasses[Math.floor(Math.random() * availableClasses.length)];
     
-    this.characterData.class = selectedClass;
+    this.characterData.class = charClass;
     
     return {
       success: true,
-      action: 'determine_character_class',
-      result: `Selected character class: ${selectedClass}`,
-      classType: 'class' // Keep for backward compatibility
+      action: 'determine_class',
+      result: `Selected class: ${charClass}`
     };
   }
-
+  
+  /**
+   * Calculate ability scores using dice rolls (Step 3)
+   * Uses RAG context to determine the correct method for this world
+   * @returns {Promise<object>} Result of ability score calculation
+   */
   async calculateAbilityScores() {
     const scores = {};
     
