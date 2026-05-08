@@ -128,18 +128,70 @@ ${step.description}
 
 /**
  * Validate character data against a step's validation rules
+ * Returns an object with isValid boolean and optional failureMessage from LLM
  */
-function validateStep(step, data) {
+export async function validateStep(step, data, ragSource = null) {
   if (step.validation) {
-    return step.validation(data);
+    const isValid = step.validation(data);
+    
+    // If validation passed, return success
+    if (isValid) {
+      return { isValid: true };
+    }
+    
+    // Validation failed - try to get LLM-generated failure message
+    if (ragSource) {
+      try {
+        // Query the RAG source for validation guidance
+        const validationGuidance = await getRagQuery(
+          ragSource,
+          `What are common validation failures for ${step.name} and how can they be fixed?`,
+          2
+        );
+        
+        // If we got validation guidance, use it to generate a specific failure message
+        if (validationGuidance) {
+          const failurePrompt = `
+You are an expert RPG character creation assistant. The following character data failed validation for step: ${step.name}
+
+Step description: ${step.description}
+Validation rules: ${step.validation.toString()}
+
+Character data that failed:
+${JSON.stringify(data, null, 2)}
+
+Available reference material:
+${validationGuidance.substring(0, 1500)}
+
+Please explain why the validation failed and what needs to be corrected. Keep your explanation concise (under 100 words).
+`;
+          
+          const failureMessage = await getLMStudioResponse(failurePrompt, []);
+          return {
+            isValid: false,
+            failureMessage: `Validation failed for ${step.name}:\n${failureMessage.trim()}`,
+            validationGuidance
+          };
+        }
+      } catch (error) {
+        console.log('Failed to get LLM validation message:', error);
+      }
+    }
+    
+    // Fallback: return generic failure message
+    return {
+      isValid: false,
+      failureMessage: `Validation failed for ${step.name}. Please review the character data and ensure it meets all requirements.`
+    };
   }
-  return true;
+  
+  return { isValid: true };
 }
 
 /**
  * Format the final character sheet with proper markdown formatting
  */
-function formatCharacterSheet(characterData) {
+export function formatCharacterSheet(characterData) {
   let output = `# 🎲 Character Sheet: ${characterData.name}\n\n`;
   
   // Basic info
@@ -191,6 +243,15 @@ function formatCharacterSheet(characterData) {
   output += `## ✅ Validation Status\n`;
   output += `- **Step-by-step validation:** ${characterData.validationStatus?.allStepsValid ? '✅ Passed' : '❌ Failed'}\n`;
   output += `- **Final validation:** ${characterData.validationStatus?.finalValid ? '✅ Passed' : '❌ Failed'}\n`;
+  
+  // Validation failure messages from LLM
+  if (characterData.validationFailures && characterData.validationFailures.length > 0) {
+    output += `\n## ❗ Validation Failure Messages\n`;
+    
+    for (const failure of characterData.validationFailures) {
+      output += `### ${failure.step}\n${failure.message}\n\n`;
+    }
+  }
   
   return output;
 }
@@ -359,11 +420,24 @@ export async function generateCharacterWithProgress(specifications = '', ragSour
       }
 
       // Validate this step
-      const isValid = validateStep(step, characterData);
+      const validationResult = await validateStep(step, characterData, ragSource);
+      const isValid = validationResult.isValid;
+      
       characterData.validationStatus.allStepsValid = characterData.validationStatus.allStepsValid && isValid;
 
       result.progressUpdates[result.progressUpdates.length - 1].status = isValid ? 'completed' : 'warning';
-      result.progressUpdates[result.progressUpdates.length - 1].message += isValid ? ' ✅' : ' ⚠️ (requires review)';
+      result.progressUpdates[result.progressUpdates.length - 1].message += isValid ? ' ✅' : ` ⚠️ (${validationResult.failureMessage || 'requires review'})`;
+
+      // Store validation failure messages for the final character sheet
+      if (!isValid && validationResult.failureMessage) {
+        if (!characterData.validationFailures) {
+          characterData.validationFailures = [];
+        }
+        characterData.validationFailures.push({
+          step: step.name,
+          message: validationResult.failureMessage
+        });
+      }
 
       // Add context to progress updates
       if (stepContext && step.step <= 3) {
@@ -377,18 +451,35 @@ export async function generateCharacterWithProgress(specifications = '', ragSour
     }
 
     // Final validation
-    characterData.validationStatus.finalValid = validateStep(
-      { validation: (data) => data.ancestry && data.calling && data.class },
-      characterData
+    const finalValidationResult = await validateStep(
+      { 
+        validation: (data) => data.ancestry && data.calling && data.class,
+        name: 'Final Validation' 
+      },
+      characterData,
+      ragSource
     );
+    
+    characterData.validationStatus.finalValid = finalValidationResult.isValid;
 
     if (!characterData.validationStatus.finalValid) {
       result.progressUpdates.push({
         step: 9,
         name: 'Final Validation',
         status: 'warning',
-        message: 'Character validation warnings detected - please review'
+        message: `Character validation warnings detected - ${finalValidationResult.failureMessage || 'please review'}`
       });
+      
+      // Add final validation failure to the list
+      if (finalValidationResult.failureMessage) {
+        if (!characterData.validationFailures) {
+          characterData.validationFailures = [];
+        }
+        characterData.validationFailures.push({
+          step: 'Final Validation',
+          message: finalValidationResult.failureMessage
+        });
+      }
     } else {
       result.progressUpdates.push({
         step: 9,
