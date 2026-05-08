@@ -1,0 +1,200 @@
+Delvers
+Each player character (or Delver) in Heart is made 
+up of an ancestry, class and a calling.
+Ancestries
+Delvers  are  generally  of  one  of  four  common  
+ancestries: drow, or dark elves; aelfir, or high elves; 
+humans, and gnolls. 
+Although the different people of the world are at 
+one another’s throats in the city of Spire, the Heart 
+is a great leveller in social and racial terms, as it 
+erodes  many  of  the  privileges  of  infrastructure  
+and  power  that  oppressors  rely  on  to  maintain  
+control over the oppressed. It’s not uncommon to 
+see folk from different ancestries within the same 
+adventuring party.
+There are no mechanical differences between 
+ancestries; however, there are plenty of cultural 
+differences. You’re free to choose whichever 
+ancestry best fits your character 
+and your story.
+CHARACTER GENERATION  
+STEP-BY-STEP
+1. Select an ancestry for your character.
+2. Choose a calling and record the  
+granted ability.
+3. Choose a class and record all of  
+its core abilities.
+4. Select one major and three minor abilities 
+from your class.
+5. Choose equipment.
+6. Select two beats for your first session.
+7. Answer the questions from your calling.
+8. Add finishing details.
+
+Delvers
+12
+CALLINGS
+Your calling is your reason for venturing into the 
+nightmare  undercity,  the  obsession  that  keeps  
+you  pushing  deeper  into  the  Heart  in  search  of  
+something intensely valuable to you. Understand 
+this: you are not a normal person. Normal people 
+don’t  give  up  their  lives  and  willingly  walk  into  
+terrifying labyrinths in the hope that they might 
+find what they’re looking for.
+The majority of a character’s calling is made up 
+of beats – events, challenges, goals or situations 
+that, when the character experiences them, allow 
+advancement and an increase in power. There are 
+five callings available:
+Adventure: Bored of a life on the surface, you seek 
+a knife-edge life of danger and excitement where 
+laws, both social and scientific, no longer apply. 
+Enlightenment: You want to achieve something 
+impossible;   you   know   that   the   Heart   holds   
+fragments of the knowledge you need to pull it off. 
+Forced: You don’t want to be in the Heart, but your 
+masters are blackmailing or coercing you into 
+it. You follow their orders as best you’re able. 
+Heartsong: Years of mysterious dreams where a 
+red wet heaven glistens beneath you have lead 
+you to the cursed labyrinth of the City Beneath 
+in search of greater truths. 
+Penitent: You were part of an order; you let them 
+down, and people paid the price for it. Now you 
+seek atonement through self-sacrifice.
+You’re free to choose any calling you like. Having 
+every character in the party pick the same calling can 
+lead to an interesting and very focused campaign. 
+CHARACTER ADVANCEMENT
+Each calling is made up of a core ability (which 
+you acquire when you take the calling at character 
+generation) and several beats, which are split up 
+into minor, major and zenith levels. These beats 
+can be thought of as goals, achievements or scenes 
+that shape your character’s story. When you hit 
+them, you can choose a new advance from your 
+class.  Minor  beats  earn  you  a  minor  advance;  
+major beats earn you a major advance; and zenith 
+beats  unlock  zenith  abilities,  the  most  potent  
+options available to your character. You can only 
+use each beat a single time – cross it off once you’ve 
+achieved it.
+At the end of each session (and before the first 
+one begins) each player chooses two beats from the 
+list provided in their calling and tells the GM what 
+they are. It’s the GM’s responsibility to introduce 
+elements in the following session that allow players 
+to  pursue  their  chosen  beats,  and  the  players’  
+responsibility to push the story towards achieving 
+them. Minor beats can usually be fulfilled in a 
+single session, major beats can take between two 
+and three to properly achieve, and zenith abilities 
+are generally selected to signal the beginning of the 
+end-game for the character and as the culmination 
+of multiple sessions of play.
+(If you’d like to mix it up, have the other players 
+and the GM choose one of your beats for you; this 
+means they can indicate what sort of thing they ’d 
+like to see your character do, you can be rewarded 
+for doing it, and they ’ll be more invested in the 
+story that unfolds.)
+NEGATIVE BEATSNEGATIVE BEATS
+Not all of the beats listed in the callings are things that characters would want to happen; Not all of the beats listed in the callings are things that characters would want to happen; 
+for example, a lot of them deal with suffering fallout. Think of it this way: when you’re for example, a lot of them deal with suffering fallout. Think of it this way: when you’re 
+selecting beats at the end of the session, you’re not doing so as your character. Instead, selecting beats at the end of the session, you’re not doing so as your character. Instead, 
+you’re indicating what you’d like to see happen to your character, and acting as a director you’re indicating what you’d like to see happen to your character, and acting as a director 
+of their story rather than piloting them through it. of their story rather than piloting them through it. 
+Your character doesn’t know that they have beats, much in the same way that they Your character doesn’t know that they have beats, much in the same way that they 
+don’t know that their sword does D6 damage or that they have 5 stress marked against don’t know that their sword does D6 damage or that they have 5 stress marked against 
+their their BloodBlood resistance. They’re a mechanical concern that feeds into the story, not  resistance. They’re a mechanical concern that feeds into the story, not 
+something your character is aspiring to.something your character is aspiring to.
+
+13
+CALLINGS
+GM: feel free to be blunt with establishing these 
+details. There’s no need to be coy about it – the 
+players have explicitly told you what they want to 
+happen, and the world of Heart means that they ’re 
+descending into a parasite reality that can respond 
+to their deepest desires.
+Players: feel free to ask questions and establish 
+facts. For example, if one of your beats requires 
+you to meet an NPC who hates you, and the GM 
+introduces an NPC, you’re completely within your 
+rights to ask: “Is this the guy that hates me?” It 
+makes telling stories easier for the GM and ties 
+the narrative together.
+You can only have two beats “active” at any one 
+time. You cannot hit more than a single beat in 
+any given situation (if both apply, pick the one 
+that’s most relevant.) As you cannot activate more 
+beats before the start of the next session, you can 
+only  achieve  two  beats  per  
+session.
+MAKING YOUR OWN CALLINGS
+The  five  callings  in  this  book  (Adventure, 
+Enlightenment, Forced, Heartsong   and   
+Penitent) form a decent basis for personal growth 
+on an adventure, but you are encouraged to tweak, 
+reskin and reflavour them so they’ll be a better fit 
+for your campaign.
+For   example,   if   you   wanted   to   make   a   
+character who was obsessively seeking revenge  
+against  someone  who  wronged  them  in  the  
+past,  you  could  take  the  Enlightenment  calling  
+and  replace  the  bits  that  refer  to  the  occult  or  
+academics with vigilantism and uncovering the 
+villain’s network of agents. 
+If  you  want  to  seed  details  of  later  events  in  
+the game, you can add beats that refer to specific 
+events,  people  or  places.  For  example:  you’re  
+fascinated by the Huntress (p.  212) and want 
+to use her in your game. You could add beats like 
+“find evidence of the Huntress’ machinations” 
+or “meet an NPC who’s seen the Huntress first 
+hand” as minors, all the way up to “escape from 
+the Huntress once she’s got your scent” as a major. 
+Even if you haven’t really got a firm idea of what 
+it is, putting in the minor beat “Set foot inside the 
+Blind Library ” sets your players up with a mystery 
+to explore right off the bat.
+You’ve  got  a  great  deal  of  freedom  to  create  
+personalised beats for your campaign; take some 
+chances  with  it,  and  see  what  works  for  your  
+group.
+
+Delvers
+14
+CLASSES
+Your class is the reason you’re not dead yet. You 
+are a capable person; maybe not a sane or sensible 
+one, but you can handle yourself. Your class gives 
+you access to abilities that let you affect the world 
+around you or resist misfortune. When you achieve 
+beats  from  your  calling,  you’ll  gain  an  advance  
+from your class at the appropriate level.
+Upon selecting a class you automatically gain 
+every  related  core  ability.  Each  class  has  a  few  
+Zenith abilities: these are the ultimate expression 
+of the class, and they ’re not the sort of power that 
+you can sustain in an ongoing campaign. They also 
+mark the end of the character’s progression as they 
+achieve their goal.
+Once  a  player  unlocks  a  zenith  advance,  the  
+GM should make it clear that they have only one 
+or two games remaining before 
+they  should  retire  their  
+character. 
+Most of the zenith abilities have this baked in; 
+activating them retires the character in exchange 
+for a burst of tremendous power.
+Here are the classes in this book:
+Cleaver: A shapeshifting hunter who consumes 
+the flesh of their prey – or anything they can get 
+their hands on, really – to gain power. 
+Deadwalker:  A  Deadwalker  has  stared  into  
+the  face  of  death  and  come  out  triumphant,  
+and they ’re accompanied by a spectre of their 
+demise. They use their half-dead spirit to break 
