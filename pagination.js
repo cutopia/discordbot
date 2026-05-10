@@ -205,7 +205,8 @@ export async function updateMessageWithPagination(webhookId, token, chunks, chan
       requestBody.components = components;
     }
     
-    await DiscordRequest(`webhooks/${webhookId}/${token}/messages/@original`, {
+    const encodedToken = encodeURIComponent(token);
+    await DiscordRequest(`webhooks/${webhookId}/${encodedToken}/messages/@original`, {
       method: 'PATCH',
       body: requestBody
     });

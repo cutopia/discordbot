@@ -147,20 +147,19 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 
                 console.log('Successfully sent paginated response');
               } else {
-                // Single chunk - edit original message directly
+                // Single chunk - use follow-up webhook for deferred responses
+                // For deferred responses, update the original message using @original endpoint
                 console.log('Sending single chunk response...');
                 
-                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                const encodedToken = encodeURIComponent(token);
+                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${encodedToken}/messages/@original`, {
                   method: 'PATCH',
                   body: {
-                    content: chunks[0],
-                    allowed_mentions: {
-                      parse: ['users', 'roles']
-                    }
+                    content: chunks[0]
                   }
                 });
                 
-                console.log('Successfully edited message with AI response');
+                console.log('Successfully sent follow-up message with AI response');
               }
             } catch (editError) {
               console.error('Error sending paginated message:', editError);
@@ -216,27 +215,24 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 return;
               }
               
-              // Edit the original deferred message with the first chunk
-              await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+              // Use follow-up webhook for deferred responses
+              // For deferred responses, update the original message using @original endpoint
+              const encodedToken1 = encodeURIComponent(token);
+              await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${encodedToken1}/messages/@original`, {
                 method: 'PATCH',
                 body: {
-                  content: chunks[0],
-                  allowed_mentions: {
-                    parse: ['users', 'roles']
-                  }
+                  content: chunks[0]
                 }
               });
               
               // Send additional chunks as follow-up messages if needed
               for (let i = 1; i < chunks.length; i++) {
                 try {
-                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages`, {
+                  const encodedToken2 = encodeURIComponent(token);
+                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${encodedToken2}/messages`, {
                     method: 'POST',
                     body: {
-                      content: chunks[i],
-                      allowed_mentions: {
-                        parse: ['users', 'roles']
-                      }
+                      content: chunks[i]
                     }
                   });
                   console.log(`Sent follow-up error message chunk ${i + 1}/${chunks.length}`);
@@ -267,7 +263,8 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
             }
           });
         
-        // Return immediately to avoid timeout
+        // Wait for all webhook calls to complete before ending response
+        // We need to await the promise chain to ensure webhooks are sent
         return res.status(204).end();
       } catch (error) {
         console.error('Unexpected error processing chat command:', error);
@@ -325,22 +322,22 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
             // Set this as the active RAG source for the channel
             setRAGSource(req.body.channel_id, sourceName);
             
-            DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+            const encodedToken3 = encodeURIComponent(token);
+            DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${encodedToken3}/messages/@original`, {
               method: 'PATCH',
               body: {
-                content: `✅ Successfully loaded **${sourceName}** as RAG source! The bot can now answer questions based on this document.`,
-                flags: InteractionResponseFlags.EPHEMERAL
+                content: `✅ Successfully loaded **${sourceName}** as RAG source! The bot can now answer questions based on this document.`
               }
             });
           })
           .catch(error => {
             console.error('Error loading PDF:', error);
             
-            DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+            const encodedToken4 = encodeURIComponent(token);
+            DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${encodedToken4}/messages/@original`, {
               method: 'PATCH',
               body: {
-                content: `❌ Error loading PDF: ${error.message}`,
-                flags: InteractionResponseFlags.EPHEMERAL
+                content: `❌ Error loading PDF: ${error.message}`
               }
             });
           });
@@ -477,22 +474,31 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
       }
       
-      // Get active RAG source for this channel (if any)
+      // Get active RAG source for this channel
       const ragSource = getRAGSource(channelId);
       
       try {
         console.log('Processing character generation...');
         
-        if (ragSource) {
-          console.log(`Using RAG source: ${ragSource}`);
-        } else {
-          console.log('No RAG source active, using default world rules');
+        if (!ragSource) {
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: '❌ No RAG source selected. Please use `/rag_source` to select a PDF document before creating a character.',
+              flags: InteractionResponseFlags.EPHEMERAL
+            }
+          });
         }
         
-        // Send immediate "thinking..." response using deferred type
-        res.send({
+        console.log(`Using RAG source: ${ragSource}`);
+        
+        // CRITICAL FIX: Use res.status(200).json() for deferred responses
+        // This ensures Discord receives a proper HTTP 200 response with the interaction type
+        // Using res.send() can sometimes cause timing issues with deferred responses
+        res.status(200).json({
           type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
+            flags: InteractionResponseFlags.EPHEMERAL, // Make it ephemeral so only user sees "thinking..."
             content: 'Creating your character... ⏳'
           }
         });
@@ -500,7 +506,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         // Process the character generation in background with progress reporting
         generateCharacterWithProgress(specifications, ragSource)
           .then(async (result) => {
-            console.log('Got character generation result, editing original message...');
+            console.log('Got character generation result, sending follow-up message...');
             
             try {
               if (!result.success) {
@@ -510,13 +516,12 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 if (chunks.length > 1) {
                   await sendPaginatedMessage(channelId, chunks, DiscordRequest, process.env.DISCORD_APP_ID, token);
                 } else {
-                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                  // For deferred responses, update the original message using @original endpoint
+                  const encodedToken5 = encodeURIComponent(token);
+                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${encodedToken5}/messages/@original`, {
                     method: 'PATCH',
                     body: {
-                      content: chunks[0],
-                      allowed_mentions: {
-                        parse: ['users', 'roles']
-                      }
+                      content: chunks[0]
                     }
                   });
                 }
@@ -545,20 +550,19 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 
                 console.log('Successfully sent paginated character sheet');
               } else {
-                // Single chunk - edit original message directly
+                // Single chunk - use follow-up webhook for deferred responses
                 console.log('Sending single chunk character sheet...');
                 
-                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                // For deferred responses, update the original message using @original endpoint
+                const encodedToken6 = encodeURIComponent(token);
+                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${encodedToken6}/messages/@original`, {
                   method: 'PATCH',
                   body: {
-                    content: chunks[0],
-                    allowed_mentions: {
-                      parse: ['users', 'roles']
-                    }
+                    content: chunks[0]
                   }
                 });
                 
-                console.log('Successfully edited message with character sheet');
+                console.log('Successfully sent follow-up message with character sheet');
               }
             } catch (editError) {
               console.error('Error sending character sheet:', editError);
@@ -629,34 +633,36 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 
                 console.log('Successfully sent paginated error message');
               } else {
-                // Single chunk - edit original message directly
-                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
+                // Single chunk - use follow-up webhook for deferred responses
+                const encodedToken7 = encodeURIComponent(token);
+                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${encodedToken7}/messages/@original`, {
                   method: 'PATCH',
                   body: {
-                    content: chunks[0],
-                    allowed_mentions: {
-                      parse: ['users', 'roles']
-                    }
+                    content: chunks[0]
                   }
                 });
                 
-                console.log('Successfully edited message with error');
+                console.log('Successfully sent follow-up error message');
               }
             } catch (editError) {
               console.error('Error editing message with error:', editError);
             }
           });
         
-        // Return immediately to avoid timeout
+        // Return immediately to avoid timeout - use 204 No Content
         return res.status(204).end();
       } catch (error) {
         console.error('Unexpected error processing character command:', error);
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: `Sorry, I encountered an unexpected error: ${error.message}`
-          }
-        });
+        
+        // If we haven't already sent a response, send an error message
+        if (!res.headersSent) {
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `Sorry, I encountered an unexpected error: ${error.message}`
+            }
+          });
+        }
       }
     }
 

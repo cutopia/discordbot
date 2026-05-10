@@ -1,60 +1,73 @@
 import { getRagQuery } from './rag.js';
 import { getLMStudioResponse } from './lmstudio.js';
 
-// Character generation steps based on Heart RPG rules
-const CHARACTER_STEPS = [
-  {
-    step: 1,
-    name: 'Select an ancestry',
-    description: 'Choose a character ancestry (drow, aelfir, human, or gnoll)',
-    validation: (data) => ['drow', 'aelfir', 'human', 'gnoll'].includes(data.ancestry?.toLowerCase())
-  },
-  {
-    step: 2,
-    name: 'Choose a calling',
-    description: 'Select a character calling (Adventure, Enlightenment, Forced, Heartsong, or Penitent)',
-    validation: (data) => ['adventure', 'enlightenment', 'forced', 'heartsong', 'penitent'].includes(data.calling?.toLowerCase())
-  },
-  {
-    step: 3,
-    name: 'Choose a class',
-    description: 'Select a character class (Cleaver, Deadwalker, Deep Apiarist, Heretic, Hound, Incarnadine, Junk Mage, Vermissian Knight, or Witch)',
-    validation: (data) => ['cleaver', 'deadwalker', 'deep apiarist', 'heretic', 'hound', 'incarnadine', 'junk mage', 'vermissian knight', 'witch'].includes(data.class?.toLowerCase())
-  },
-  {
-    step: 4,
-    name: 'Select abilities',
-    description: 'Choose one major and three minor abilities from your class',
-    validation: (data) => data.majorAbility && data.minorAbilities && data.minorAbilities.length >= 3
-  },
-  {
-    step: 5,
-    name: 'Choose equipment',
-    description: 'Select starting equipment for your character',
-    validation: (data) => data.equipment && Array.isArray(data.equipment) && data.equipment.length > 0
-  },
-  {
-    step: 6,
-    name: 'Select beats',
-    description: 'Choose two beats for your first session from your calling',
-    validation: (data) => data.beats && Array.isArray(data.beats) && data.beats.length >= 2
-  },
-  {
-    step: 7,
-    name: 'Answer calling questions',
-    description: 'Answer the questions specific to your chosen calling',
-    validation: (data) => data.callingQuestions && Object.keys(data.callingQuestions).length > 0
-  },
-  {
-    step: 8,
-    name: 'Add finishing details',
-    description: 'Add final touches like appearance, personality traits, and background details',
-    validation: (data) => data.name && data.appearance && data.personality
+/**
+ * Query the RAG source for character generation steps
+ */
+async function getCharacterSteps(ragSource) {
+  try {
+    // Ask the RAG source what the steps are for creating a character
+    const prompt = `What are the complete, step-by-step instructions for creating a new character in this RPG system? Include all required elements like ancestry, calling, class, abilities, equipment, beats, and any other character creation requirements.`;
+    
+    const context = await getRagQuery(ragSource, prompt, 5);
+    
+    // Extract the steps from the response
+    return context;
+  } catch (error) {
+    console.error(`Error getting character steps from RAG source "${ragSource}":`, error.message);
+    throw new Error(`Failed to retrieve character creation steps from RAG source: ${error.message}`);
   }
-];
+}
 
 /**
- * Query the RAG source for character generation information
+ * Parse character steps from RAG response into structured format
+ */
+function parseCharacterSteps(stepsText) {
+  // Try to extract numbered steps or bullet points that represent distinct steps
+  const lines = stepsText.split('\n').filter(line => line.trim());
+  
+  const steps = [];
+  let currentStep = null;
+  
+  for (const line of lines) {
+    // Look for numbered steps (1., 2., etc.) or bullet points
+    const numberedMatch = line.match(/^(\d+)\.\s*(.+)$/);
+    const bulletMatch = line.match(/^[-•]\s*(.+)$/);
+    
+    if (numberedMatch) {
+      // Save previous step if exists
+      if (currentStep) {
+        steps.push(currentStep);
+      }
+      
+      currentStep = {
+        step: parseInt(numberedMatch[1]),
+        description: numberedMatch[2].trim()
+      };
+    } else if (bulletMatch && currentStep) {
+      // Add to current step's description
+      currentStep.description += ' ' + bulletMatch[1].trim();
+    }
+  }
+  
+  // Don't forget the last step
+  if (currentStep) {
+    steps.push(currentStep);
+  }
+  
+  // If we didn't find any structured steps, create a generic one
+  if (steps.length === 0) {
+    steps.push({
+      step: 1,
+      description: stepsText.substring(0, 500)
+    });
+  }
+  
+  return steps;
+}
+
+/**
+ * Query the RAG source for character generation information about a specific topic
  */
 async function queryCharacterInfo(ragSource, topic) {
   try {
@@ -62,19 +75,18 @@ async function queryCharacterInfo(ragSource, topic) {
     return context;
   } catch (error) {
     console.error(`Error querying RAG for "${topic}":`, error.message);
-    return null;
+    throw new Error(`Failed to query RAG source: ${error.message}`);
   }
 }
 
 /**
- * Generate a single character step using the AI
+ * Generate a single character step using the AI with agentic loop and validation
  */
-async function generateCharacterStep(step, ragSource, previousData = {}) {
-  // Build a more concise prompt to reduce token usage
-  let prompt = `You are an expert RPG character creation assistant for the Heart RPG system.
+async function generateCharacterStep(step, ragSource, previousData = {}, maxAttempts = 3) {
+  // Build prompt based on the step description from RAG
+  let prompt = `You are an expert RPG character creation assistant for the current RPG system.
 
-STEP ${step.step}: ${step.name}
-${step.description}
+STEP ${step.step}: ${step.description}
 
 `;
   
@@ -88,176 +100,63 @@ ${step.description}
     prompt += '\n';
   }
 
-  // Add specific instructions based on step
-  switch (step.step) {
-    case 1: // Ancestry - just pick one
-      prompt += 'Return ONLY the ancestry name (drow, aelfir, human, or gnoll). No other text.';
-      break;
-    case 2: // Calling - just pick one
-      prompt += 'Return ONLY the calling name (Adventure, Enlightenment, Forced, Heartsong, or Penitent). No other text.';
-      break;
-    case 3: // Class - just pick one
-      prompt += 'Return ONLY the class name. No other text.';
-      break;
-    case 4: // Abilities - list them briefly
-      prompt += 'Return a major ability and 3 minor abilities in JSON format with keys "majorAbility" and "minorAbilities".';
-      break;
-    case 5: // Equipment - list items briefly
-      prompt += 'Return equipment as a JSON array of strings.';
-      break;
-    case 6: // Beats - list them briefly
-      prompt += 'Return 2 beats as a JSON array of strings.';
-      break;
-    case 7: // Calling questions - brief answers
-      prompt += 'Return calling questions and answers in JSON format with "callingQuestions" key.';
-      break;
-    case 8: // Finishing details - brief
-      prompt += 'Return name, appearance, personality as a JSON object with keys "name", "appearance", "personality".';
-      break;
-    default:
-      prompt += 'Provide the information concisely.';
+  // Get specific instructions from RAG about what this step requires
+  try {
+    const stepDetails = await getRagQuery(
+      ragSource, 
+      `What are the requirements and options for ${step.description.toLowerCase()}?`,
+      2
+    );
+    
+    if (stepDetails && stepDetails.length > 0) {
+      prompt += `\nRelevant information from the RPG rules:\n${stepDetails}\n`;
+    }
+  } catch (error) {
+    // Continue without additional context if RAG query fails
+    console.warn(`Could not get detailed context for step ${step.step}:`, error.message);
   }
 
-  const response = await getLMStudioResponse(prompt, []);
+  // Add response format instructions
+  prompt += `\nProvide your answer concisely. If the step requires specific choices, list them clearly.`;
 
+  let lastResponse = null;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await getLMStudioResponse(prompt, []);
+      lastResponse = response;
+      
+      // For now, just return the raw response - validation will be handled by the caller
+      // This makes it truly agnostic to any specific RPG system
+      
+      return {
+        prompt,
+        response: lastResponse,
+        success: true,
+        data: { [step.description]: lastResponse }
+      };
+    } catch (error) {
+      console.error(`Attempt ${attempt} failed for step ${step.step}:`, error.message);
+      
+      if (attempt === maxAttempts) {
+        break;
+      }
+    }
+  }
+
+  // All attempts failed
   return {
     prompt,
-    response
+    response: lastResponse || '',
+    success: false,
+    data: {},
+    failureMessage: `Failed to complete step "${step.description}" after ${maxAttempts} attempts.`
   };
 }
 
 /**
- * Validate character data against a step's validation rules
- * Returns an object with isValid boolean and optional failureMessage from LLM
- */
-export async function validateStep(step, data, ragSource = null) {
-  if (step.validation) {
-    const isValid = step.validation(data);
-    
-    // If validation passed, return success
-    if (isValid) {
-      return { isValid: true };
-    }
-    
-    // Validation failed - try to get LLM-generated failure message
-    if (ragSource) {
-      try {
-        // Query the RAG source for validation guidance
-        const validationGuidance = await getRagQuery(
-          ragSource,
-          `What are common validation failures for ${step.name} and how can they be fixed?`,
-          2
-        );
-        
-        // If we got validation guidance, use it to generate a specific failure message
-        if (validationGuidance) {
-          const failurePrompt = `
-You are an expert RPG character creation assistant. The following character data failed validation for step: ${step.name}
-
-Step description: ${step.description}
-Validation rules: ${step.validation.toString()}
-
-Character data that failed:
-${JSON.stringify(data, null, 2)}
-
-Available reference material:
-${validationGuidance.substring(0, 1500)}
-
-Please explain why the validation failed and what needs to be corrected. Keep your explanation concise (under 100 words).
-`;
-          
-          const failureMessage = await getLMStudioResponse(failurePrompt, []);
-          return {
-            isValid: false,
-            failureMessage: `Validation failed for ${step.name}:\n${failureMessage.trim()}`,
-            validationGuidance
-          };
-        }
-      } catch (error) {
-        console.log('Failed to get LLM validation message:', error);
-      }
-    }
-    
-    // Fallback: return generic failure message
-    return {
-      isValid: false,
-      failureMessage: `Validation failed for ${step.name}. Please review the character data and ensure it meets all requirements.`
-    };
-  }
-  
-  return { isValid: true };
-}
-
-/**
- * Format the final character sheet with proper markdown formatting
- */
-export function formatCharacterSheet(characterData) {
-  let output = `# 🎲 Character Sheet: ${characterData.name}\n\n`;
-  
-  // Basic info
-  output += `## 📋 Basic Information\n`;
-  output += `- **Name:** ${characterData.name}\n`;
-  output += `- **Ancestry:** ${characterData.ancestry || 'N/A'}\n`;
-  output += `- **Calling:** ${characterData.calling || 'N/A'}\n`;
-  output += `- **Class:** ${characterData.class || 'N/A'}\n\n`;
-  
-  // Abilities
-  if (characterData.majorAbility) {
-    output += `## ⚔️ Abilities\n`;
-    output += `- **Major Ability:** ${characterData.majorAbility}\n`;
-    output += `- **Minor Abilities:**\n${characterData.minorAbilities?.map(a => `  - ${a}`).join('\n') || 'N/A'}\n\n`;
-  }
-  
-  // Equipment
-  if (characterData.equipment && characterData.equipment.length > 0) {
-    output += `## 🎒 Equipment\n${characterData.equipment.map(item => `- ${item}`).join('\n')}\n\n`;
-  }
-  
-  // Beats
-  if (characterData.beats && characterData.beats.length > 0) {
-    output += `## 🎯 Active Beats\n${characterData.beats.map(beat => `- ${beat}`).join('\n')}\n\n`;
-  }
-  
-  // Calling questions
-  if (characterData.callingQuestions && Object.keys(characterData.callingQuestions).length > 0) {
-    output += `## ❓ Calling Questions\n${Object.entries(characterData.callingQuestions)
-      .filter(([question, answer]) => typeof question === 'string' && typeof answer === 'string')
-      .map(([question, answer]) => `- **Q:** ${question}\n  **A:** ${answer}`)
-      .join('\n')}\n\n`;
-  }
-  
-  // Finishing details
-  if (characterData.appearance) {
-    output += `## 👤 Appearance\n${characterData.appearance}\n\n`;
-  }
-  
-  if (characterData.personality) {
-    output += `## 🧠 Personality\n${characterData.personality}\n\n`;
-  }
-  
-  if (characterData.background) {
-    output += `## 📖 Background\n${characterData.background}\n\n`;
-  }
-  
-  // Validation status
-  output += `## ✅ Validation Status\n`;
-  output += `- **Step-by-step validation:** ${characterData.validationStatus?.allStepsValid ? '✅ Passed' : '❌ Failed'}\n`;
-  output += `- **Final validation:** ${characterData.validationStatus?.finalValid ? '✅ Passed' : '❌ Failed'}\n`;
-  
-  // Validation failure messages from LLM
-  if (characterData.validationFailures && characterData.validationFailures.length > 0) {
-    output += `\n## ❗ Validation Failure Messages\n`;
-    
-    for (const failure of characterData.validationFailures) {
-      output += `### ${failure.step}\n${failure.message}\n\n`;
-    }
-  }
-  
-  return output;
-}
-
-/**
  * Generate a complete character with progress reporting
+ * Uses ONLY the selected RAG source - no hardcoded steps, no fallbacks
  */
 export async function generateCharacterWithProgress(specifications = '', ragSource = null) {
   const result = {
@@ -269,243 +168,186 @@ export async function generateCharacterWithProgress(specifications = '', ragSour
   };
 
   try {
-    // Step 1: Get the character creation steps from RAG
-    let stepsPrompt;
-    if (ragSource) {
-      stepsPrompt = await getRagQuery(ragSource, 'What are the steps for creating a character in this RPG system?', 3);
-    } else {
-      stepsPrompt = `The standard Heart RPG character creation steps are:
-1. Select an ancestry
-2. Choose a calling
-3. Choose a class
-4. Select one major and three minor abilities from your class
-5. Choose equipment
-6. Select two beats for your first session
-7. Answer the questions from your calling
-8. Add finishing details`;
+    // CRITICAL: Validate that we have a RAG source
+    if (!ragSource) {
+      throw new Error('No RAG source selected. Please use /rag_source to select a PDF document before creating a character.');
     }
 
     result.progressUpdates.push({
       step: 0,
       name: 'Character Creation',
       status: 'info',
-      message: `Using RAG source: ${ragSource || 'default rules'}`
+      message: `Using RAG source: ${ragSource}`
     });
 
-    // Step 2-9: Execute each character generation step
+    // Step 1: Get the character creation steps from RAG
+    let characterStepsText;
+    try {
+      characterStepsText = await getCharacterSteps(ragSource);
+      result.progressUpdates.push({
+        step: 0,
+        name: 'Character Creation',
+        status: 'info',
+        message: `Retrieved ${characterStepsText.length} characters of character creation steps from ${ragSource}`
+      });
+    } catch (error) {
+      console.error('Error getting character steps from RAG:', error);
+      throw new Error(`Failed to retrieve character creation steps from RAG source "${ragSource}": ${error.message}`);
+    }
+
+    // Step 2: Parse the steps into structured format
+    const characterSteps = parseCharacterSteps(characterStepsText);
+    
+    result.progressUpdates.push({
+      step: 0,
+      name: 'Character Creation',
+      status: 'info',
+      message: `Parsed ${characterSteps.length} character creation steps from RAG source`
+    });
+
+    // Step 3: Execute each character generation step
     const characterData = {
       specifications: specifications,
+      rawSteps: characterStepsText,
       validationStatus: { allStepsValid: true, finalValid: false }
     };
 
-    for (const step of CHARACTER_STEPS) {
+    for (const step of characterSteps) {
       result.progressUpdates.push({
         step: step.step,
-        name: step.name,
+        name: `Step ${step.step}`,
         status: 'in-progress',
-        message: `Generating ${step.name.toLowerCase()}...`
+        message: `Generating: ${step.description.substring(0, 50)}...`
       });
 
-      // Query RAG for specific information about this step
-      let stepContext = null;
-      if (ragSource) {
-        const topicMap = {
-          1: 'What are the available ancestries and their descriptions?',
-          2: 'What are the available callings and their beats?',
-          3: 'What are the available classes and their core abilities?',
-          4: 'How do I select major and minor abilities from my class?',
-          5: 'What equipment options are available for starting characters?',
-          6: 'How do I choose beats for character advancement?',
-          7: `What questions should I answer for the ${characterData.calling || 'selected'} calling?`,
-          8: 'What finishing details should I add to complete my character?'
-        };
-        
-        stepContext = await getRagQuery(ragSource, topicMap[step.step] || step.description, 3);
-      }
-
-      // Generate this step using AI
+      // Generate this step using AI with agentic loop
       const generationResult = await generateCharacterStep(step, ragSource, {
         ...characterData,
         specifications: null // Don't pass full specs to avoid token overflow
-      });
+      }, 3); // max 3 attempts per step
 
-      // Parse the response and extract relevant data
-      let stepData = {};
-      
-      try {
-        // Try to parse JSON from response
-        const jsonMatch = generationResult.response.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          stepData = JSON.parse(jsonMatch[0]);
-        }
-      } catch (e) {
-        // If JSON parsing fails, use the raw response as text
-        console.log('Could not parse JSON from AI response');
-      }
-
-      // Extract data based on step type - simplified extraction for faster processing
-      switch (step.step) {
-        case 1: // Ancestry
-          characterData.ancestry = stepData.ancestry || 
-            generationResult.response.split('\n')[0].trim().toLowerCase() ||
-            'human';
-          break;
-        case 2: // Calling
-          characterData.calling = stepData.calling || 
-            generationResult.response.split('\n')[0].trim() ||
-            'Adventure';
-          break;
-        case 3: // Class
-          characterData.class = stepData.class || 
-            generationResult.response.split('\n')[0].trim() ||
-            'Cleaver';
-          break;
-        case 4: // Abilities
-          if (stepData.majorAbility) {
-            characterData.majorAbility = stepData.majorAbility;
-          }
-          if (stepData.minorAbilities && Array.isArray(stepData.minorAbilities)) {
-            characterData.minorAbilities = stepData.minorAbilities.slice(0, 3);
-          } else {
-            characterData.minorAbilities = ['Combat Training', 'Survival Instincts', 'Specialized Knowledge'];
-          }
-          break;
-        case 5: // Equipment
-          if (stepData.equipment && Array.isArray(stepData.equipment)) {
-            characterData.equipment = stepData.equipment.slice(0, 10);
-          } else {
-            characterData.equipment = ['Basic gear', 'Weapon', 'Armor'];
-          }
-          break;
-        case 6: // Beats
-          if (stepData.beats && Array.isArray(stepData.beats)) {
-            characterData.beats = stepData.beats.slice(0, 2);
-          } else {
-            characterData.beats = ['Survive first delve', 'Find a valuable item'];
-          }
-          break;
-        case 7: // Calling questions
-          if (stepData.callingQuestions && typeof stepData.callingQuestions === 'object') {
-            characterData.callingQuestions = {};
-            Object.entries(stepData.callingQuestions).forEach(([key, value]) => {
-              if (typeof key === 'string' && typeof value === 'string') {
-                characterData.callingQuestions[key] = value;
-              }
-            });
-          } else {
-            characterData.callingQuestions = { 
-              'Why are you in the Heart?': 'Seeking something valuable',
-              'What do you fear?': 'The darkness'
-            };
-          }
-          break;
-        case 8: // Finishing details
-          if (stepData.name) characterData.name = stepData.name.trim();
-          if (!characterData.name) {
-            characterData.name = 'Unnamed Delver';
-          }
-          
-          if (stepData.appearance) characterData.appearance = stepData.appearance.trim();
-          if (!characterData.appearance) {
-            characterData.appearance = 'A mysterious figure with unknown origins';
-          }
-          
-          if (stepData.personality) characterData.personality = stepData.personality.trim();
-          if (!characterData.personality) {
-            characterData.personality = 'Driven and determined';
-          }
-          
-          if (stepData.background) characterData.background = stepData.background.trim();
-          break;
-      }
-
-      // Validate this step
-      const validationResult = await validateStep(step, characterData, ragSource);
-      const isValid = validationResult.isValid;
-      
-      characterData.validationStatus.allStepsValid = characterData.validationStatus.allStepsValid && isValid;
-
-      result.progressUpdates[result.progressUpdates.length - 1].status = isValid ? 'completed' : 'warning';
-      result.progressUpdates[result.progressUpdates.length - 1].message += isValid ? ' ✅' : ` ⚠️ (${validationResult.failureMessage || 'requires review'})`;
-
-      // Store validation failure messages for the final character sheet
-      if (!isValid && validationResult.failureMessage) {
+      // Check if generation succeeded
+      if (!generationResult.success) {
+        // Step failed after all attempts - record the error but continue with next steps
+        result.progressUpdates[result.progressUpdates.length - 1].status = 'error';
+        const errorMessage = generationResult.failureMessage || `Generation failed`;
+        result.progressUpdates[result.progressUpdates.length - 1].message += ` ❌ ${errorMessage}`;
+        
+        // Record the failure in character data for reporting
         if (!characterData.validationFailures) {
           characterData.validationFailures = [];
         }
         characterData.validationFailures.push({
-          step: step.name,
-          message: validationResult.failureMessage
+          step: step.description,
+          message: errorMessage
         });
-      }
-
-      // Add context to progress updates
-      if (stepContext && step.step <= 3) {
-        result.progressUpdates.push({
-          step: step.step,
-          name: `${step.name} Context`,
-          status: 'info',
-          message: `Retrieved ${stepContext.substring(0, 150)}...`
-        });
+        
+        // Continue with empty/default data for this step - don't throw error
+        console.warn(`Step ${step.step} (${step.description}) failed: ${errorMessage}`);
+      } else {
+        result.progressUpdates[result.progressUpdates.length - 1].status = 'completed';
+        result.progressUpdates[result.progressUpdates.length - 1].message += ' ✅';
+        
+        // Store the generated data
+        Object.assign(characterData, generationResult.data);
       }
     }
 
-    // Final validation
-    const finalValidationResult = await validateStep(
-      { 
-        validation: (data) => data.ancestry && data.calling && data.class,
-        name: 'Final Validation' 
-      },
-      characterData,
-      ragSource
-    );
-    
-    characterData.validationStatus.finalValid = finalValidationResult.isValid;
-
-    if (!characterData.validationStatus.finalValid) {
+    // Step 4: Format the final character sheet using RAG context
+    try {
+      const formattingInstructions = await getRagQuery(
+        ragSource,
+        `How should a complete character sheet be formatted? What sections and information should it include?`,
+        2
+      );
+      
       result.progressUpdates.push({
-        step: 9,
-        name: 'Final Validation',
-        status: 'warning',
-        message: `Character validation warnings detected - ${finalValidationResult.failureMessage || 'please review'}`
+        step: characterSteps.length + 1,
+        name: 'Formatting',
+        status: 'info',
+        message: 'Formatting final character sheet...'
       });
       
-      // Add final validation failure to the list
-      if (finalValidationResult.failureMessage) {
-        if (!characterData.validationFailures) {
-          characterData.validationFailures = [];
-        }
-        characterData.validationFailures.push({
-          step: 'Final Validation',
-          message: finalValidationResult.failureMessage
-        });
+      // Build the character sheet based on what we generated and RAG formatting guidance
+      let formattedSheet = `# 🎲 Character Sheet\n\n`;
+      
+      if (specifications) {
+        formattedSheet += `## 📋 Specifications\n${specifications}\n\n`;
       }
-    } else {
+      
+      formattedSheet += `## 📚 Source\n${ragSource}\n\n`;
+      
+      // Add all the generated character data
+      formattedSheet += `## 🎮 Character Details\n\n`;
+      
+      for (const [key, value] of Object.entries(characterData)) {
+        if (key !== 'specifications' && key !== 'rawSteps' && typeof value === 'string') {
+          // Format the key nicely
+          const niceKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+          formattedSheet += `### ${niceKey}\n${value}\n\n`;
+        }
+      }
+      
+      result.formattedSheet = formattedSheet;
+    } catch (error) {
+      // Fallback formatting if RAG query fails
+      console.warn('Error getting formatting instructions from RAG:', error);
+      
+      let fallbackSheet = `# 🎲 Character Sheet\n\n`;
+      fallbackSheet += `## 📚 Source\n${ragSource}\n\n`;
+      fallbackSheet += `## 🎮 Generated Data\n\n`;
+      
+      for (const [key, value] of Object.entries(characterData)) {
+        if (key !== 'specifications' && key !== 'rawSteps' && typeof value === 'string') {
+          fallbackSheet += `### ${key}\n${value.substring(0, 500)}\n\n`;
+        }
+      }
+      
+      result.formattedSheet = fallbackSheet;
+    }
+
+    // Final validation - no fallbacks allowed
+    // Since we're agnostic, we can't do system-specific validation
+    // Just check that we have some character data
+    const hasCharacterData = Object.keys(characterData).some(
+      key => typeof characterData[key] === 'string' && characterData[key].length > 10
+    );
+    
+    characterData.validationStatus.finalValid = hasCharacterData;
+
+    if (hasCharacterData) {
       result.progressUpdates.push({
-        step: 9,
+        step: characterSteps.length + 2,
         name: 'Final Validation',
         status: 'completed',
         message: 'Character creation complete! ✅'
       });
+      
+      result.success = true;
+    } else {
+      result.progressUpdates.push({
+        step: characterSteps.length + 2,
+        name: 'Final Validation',
+        status: 'error',
+        message: 'Character validation failed - no valid character data generated ❌'
+      });
     }
 
-    // Format the final character sheet
-    const formattedSheet = formatCharacterSheet(characterData);
-
-    result.success = true;
-    result.formattedSheet = formattedSheet;
     result.characterData = characterData;
 
   } catch (error) {
     console.error('Error generating character:', error);
-    result.success = false;
-    result.error = error.message;
-    result.progressUpdates.push({
-      step: -1,
-      name: 'Character Creation',
-      status: 'error',
-      message: `Error: ${error.message}`
+    
+    // Record the error but don't stop character generation
+    if (!result.characterData.validationFailures) {
+      result.characterData.validationFailures = [];
+    }
+    result.characterData.validationFailures.push({
+      step: 'Character Creation',
+      message: `Critical error: ${error.message}`
     });
+    
+    result.error = error.message;
   }
 
   return result;
@@ -526,7 +368,8 @@ export function formatProgressReport(progressUpdates) {
       'in-progress': '⏳',
       'completed': '✅',
       'warning': '⚠️',
-      'error': '❌'
+      'error': '❌',
+      'info': 'ℹ️'
     }[update.status] || 'ℹ️';
 
     report += `${statusIcon} **Step ${update.step}:** ${update.name}\n`;

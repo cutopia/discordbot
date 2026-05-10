@@ -24,7 +24,7 @@ async function runTests() {
   };
   
   console.log('Test 1: Valid character data');
-  const validResult = validateStep(validStep, validData);
+  const validResult = await validateStep(validStep, validData);
   console.log(`Expected: { isValid: true }, Got: ${JSON.stringify(validResult)}`);
   console.log(`✅ Test 1 passed: ${validResult.isValid === true}\n`);
   
@@ -36,7 +36,7 @@ async function runTests() {
   };
   
   console.log('Test 2: Invalid character data (missing ancestry)');
-  const invalidResult = validateStep(validStep, invalidData);
+  const invalidResult = await validateStep(validStep, invalidData);
   console.log(`Expected: { isValid: false }, Got: ${JSON.stringify(invalidResult)}`);
   console.log(`✅ Test 2 passed: ${invalidResult.isValid === false}\n`);
   
