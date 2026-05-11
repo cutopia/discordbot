@@ -1,5 +1,11 @@
 import { getLMStudioResponse } from './lmstudio.js';
 import { queryVectorStore, vectorStores } from './rag.js';
+import { 
+  availableClarifyTools, 
+  executeClarifyTool,
+  generateClarifyPrompt,
+  analyzeStepForClarification
+} from './clarify.js';
 
 /**
  * Character generation agent state
@@ -47,11 +53,13 @@ You are an expert RPG character creation assistant. Your task is to extract char
 4. **Use your knowledge of RPG character creation structure to help organize the information**
 5. **Return as many complete steps as you can find in the context**
 
-Extract the step-by-step character creation instructions from the following text. 
-For EACH step found, identify:
-1. What CHOICE needs to be made
-2. What OPTIONS are available for that choice  
-3. How the choice is to be MADE (dice roll method, pick favorite, random selection, etc.)
+**STEP FORMAT REQUIREMENTS:**
+- STEP N: [Step Name] - This should be a clear description of what needs to be done
+- CHOICE: [What decision needs to be made] - Only include if there's an explicit choice
+- OPTIONS: [List of available options] - Only include if specific options are listed
+- METHOD: [How to make the choice] - Only include if a specific method is mentioned
+
+**IMPORTANT:** If a step doesn't have a CHOICE, OPTIONS, or METHOD, just provide what information is available.
 
 Return them in this format:
 
@@ -80,7 +88,15 @@ Steps:`;
         if (!block.trim()) continue;
         
         const stepInfo = this.parseStepBlock(block.trim());
-        if (stepInfo) {
+        if (stepInfo && stepInfo.stepName) {
+          // Clean up the step name
+          stepInfo.stepName = this.cleanStepLine(stepInfo.stepName);
+          
+          // If step name is still malformed, try to extract meaningful content
+          if (!stepInfo.stepName || stepInfo.stepName.length < 5) {
+            continue;
+          }
+          
           this.steps.push(stepInfo);
         }
       }
@@ -92,27 +108,43 @@ Steps:`;
         const simpleSteps = response.split('\n')
           .map(line => line.trim())
           .filter(line => {
+            // Clean the line first
+            const cleanedLine = this.cleanStepLine(line);
+            
             // Filter out empty lines and non-step lines
-            if (!line) return false;
+            if (!cleanedLine) return false;
+            
             // Check for numbered steps (1., 2., etc.)
-            if (line.match(/^\d+\.\s+/)) return true;
+            if (cleanedLine.match(/^\d+\.\s+/)) return true;
+            
             // Check for step headers (Step 1:, STEP 1:, etc.)
-            if (line.match(/^step\s+\d+[:\s]/i)) return true;
+            if (cleanedLine.match(/^step\s+\d+[:\s]/i)) return true;
+            
             // Check for bold steps (**Step X:**)
-            if (line.match(/\*\*Step\s+\d+:.*\*\*/)) return true;
+            if (cleanedLine.match(/\*\*Step\s+\d+:.*\*\*/)) return true;
+            
             // Check for sentences that look like instructions
-            if (line.length > 10 && line.length < 200) {
-              const lowerLine = line.toLowerCase();
+            if (cleanedLine.length > 10 && cleanedLine.length < 250) {
+              const lowerLine = cleanedLine.toLowerCase();
               if (lowerLine.includes('create') || lowerLine.includes('choose') || 
-                  lowerLine.includes('determine') || lowerLine.includes('select')) {
+                  lowerLine.includes('determine') || lowerLine.includes('select') ||
+                  lowerLine.includes('step') || lowerLine.includes('character')) {
                 return true;
               }
             }
+            
+            // Also check for lines that contain step-like patterns
+            if (cleanedLine.length > 5 && cleanedLine.length < 200) {
+              const hasStepPattern = cleanedLine.match(/^(?:[1-9]\d?\.|step\s+\d+[:\s])/i);
+              return !!hasStepPattern;
+            }
+            
             return false;
           })
           .map(line => {
             // Clean up the step text
-            let cleaned = line.replace(/^\d+\.\s*/, '');
+            let cleaned = this.cleanStepLine(line);
+            cleaned = cleaned.replace(/^\d+\.\s*/, '');
             cleaned = cleaned.replace(/^step\s+\d+[:\s]+/i, '');
             cleaned = cleaned.replace(/\*\*Step\s+\d+:.*\*\*/i, '');
             return cleaned.trim();
@@ -137,8 +169,13 @@ Steps:`;
         if (sectionMatches) {
           this.steps = sectionMatches.map(match => {
             const parts = match.split(/\.\s*/, 2);
+            let stepName = parts[1] ? parts[1].trim() : 'Unknown Step';
+            
+            // Clean up the step name
+            stepName = this.cleanStepLine(stepName);
+            
             return {
-              stepName: parts[1] ? parts[1].trim() : 'Unknown Step',
+              stepName: stepName,
               choice: null,
               options: [],
               method: 'player_choice'
@@ -237,6 +274,14 @@ ${contextText}`;
         // First step: Initialize character sheet with specifications
         const structuredStep = typeof step === 'object' ? step : { stepName: step, choice: null, options: [], method: 'player_choice' };
         
+        // Clean up the step name for display
+        if (structuredStep.stepName) {
+          structuredStep.stepName = this.cleanStepLine(structuredStep.stepName);
+        }
+        
+        // Analyze if this step needs clarification
+        const clarificationAnalysis = analyzeStepForClarification(structuredStep);
+        
         executionPrompt = `CRITICAL INSTRUCTIONS - READ CAREFULLY:
 
 You are creating a PLAYER CHARACTER for an RPG game. Follow these instructions to create a character.
@@ -257,23 +302,84 @@ ${structuredStep.options.length > 0 ? `Options: ${structuredStep.options.join(',
 ${structuredStep.method && structuredStep.method !== 'player_choice' ? `Method: ${structuredStep.method}` : ''}
 
 Context from RPG rulebook:
-${context}
+${context}`;
 
-Instructions:
-1. Read the context carefully
-2. Make appropriate choices based on the step instructions and user specifications
-3. If dice rolls are needed, use standard dice notation (e.g., "1d20", "4d6dl1")
-4. Update your character sheet with the results
+        // Add clarification capabilities if needed
+        if (clarificationAnalysis.needsClarification) {
+          executionPrompt += `\n\n## 🤔 Clarification Required
 
-Return your response in this format:
-## Step ${stepIndex + 1}: [Step Name]
-[Your actions and decisions]
+I've analyzed this step and found that it needs additional clarification:
 
-Character Sheet State:
-- [Any updated fields]`;
+**Issues Found:**
+${clarificationAnalysis.reasons.map(reason => `- ${reason}`).join('\n')}
+
+To proceed, I need to request additional information. Here are the available clarification tools:
+
+\`\`\`json
+${JSON.stringify(availableClarifyTools, null, 2)}
+\`\`\`
+
+### How to Use Clarification Tools:
+1. **Identify what information is missing or ambiguous**
+2. **Formulate a clear, specific question** that addresses the gap
+3. **Call the request_clarification tool** with your question
+
+Example usage when clarification is needed:
+
+\`\`\`json
+{
+  "tool": "request_clarification",
+  "arguments": {
+    "question": "What are the available character classes for drow characters in this RPG system?",
+    "context": "The context mentions character classes but doesn't list specific options"
+  }
+}
+\`\`\`
+
+### Important Guidelines:
+- **Use clarification tools proactively** when you encounter ambiguity
+- **Ask specific questions** to get useful answers
+- **Don't guess** when the information is critical - ask for clarification instead
+- **Provide context** in your question to help get more accurate responses
+
+After receiving clarification, continue with the character creation process.`;
+        }
+        
+        executionPrompt += `\n\nCRITICAL INSTRUCTIONS FOR CHARACTER SHEET OUTPUT:
+
+**YOU MUST FOLLOW THIS EXACT FORMAT FOR CHARACTER SHEET DATA:**
+
+1. After your narrative response, add a section titled "Character Sheet:"
+2. For EACH character sheet field you're updating, use this format:
+   - Field Name: Value
+3. Make sure to include ALL relevant fields (Name, Class, Background, Attributes, etc.)
+
+EXAMPLE OUTPUT:
+
+## Step ${stepIndex + 1}: Determine Character Role/Archetype
+
+I have analyzed the military setting and decided to create a disciplined soldier character with strong leadership qualities.
+
+Character Sheet:
+- Name: Captain John Smith
+- Class: Soldier
+- Background: Military Veteran  
+- Alignment: Lawful Good
+- Strength: 16
+- Dexterity: 14
+
+**IMPORTANT:** Do NOT use JSON format. Use the bullet point format shown above.`;
       } else {
         // Subsequent steps: Continue building on existing character sheet
         const structuredStep = typeof step === 'object' ? step : { stepName: step, choice: null, options: [], method: 'player_choice' };
+        
+        // Clean up the step name for display
+        if (structuredStep.stepName) {
+          structuredStep.stepName = this.cleanStepLine(structuredStep.stepName);
+        }
+        
+        // Analyze if this step needs clarification
+        const clarificationAnalysis = analyzeStepForClarification(structuredStep);
         
         executionPrompt = `CRITICAL INSTRUCTIONS - READ CAREFULLY:
 
@@ -295,26 +401,77 @@ Previous Steps Completed:
 ${this.steps.slice(0, stepIndex).map((s, i) => `${i + 1}. ${typeof s === 'object' ? s.stepName : s}`).join('\n')}
 
 Context from RPG rulebook:
-${context}
+${context}`;
 
-Instructions:
-1. Read the context carefully
-2. Make appropriate choices based on the step instructions and user specifications
-3. If dice rolls are needed, use standard dice notation (e.g., "1d20", "4d6dl1")
-4. Update your character sheet with the results
+        // Add clarification capabilities if needed
+        if (clarificationAnalysis.needsClarification) {
+          executionPrompt += `\n\n## 🤔 Clarification Required
 
-Return your response in this format:
-## Step ${stepIndex + 1}: [Step Name]
-[Your actions and decisions]
+I've analyzed this step and found that it needs additional clarification:
 
-Character Sheet State:
-- [Any updated fields]`;
+**Issues Found:**
+${clarificationAnalysis.reasons.map(reason => `- ${reason}`).join('\n')}
+
+To proceed, I need to request additional information. Here are the available clarification tools:
+
+\`\`\`json
+${JSON.stringify(availableClarifyTools, null, 2)}
+\`\`\`
+
+### How to Use Clarification Tools:
+1. **Identify what information is missing or ambiguous**
+2. **Formulate a clear, specific question** that addresses the gap
+3. **Call the request_clarification tool** with your question
+
+Example usage when clarification is needed:
+
+\`\`\`json
+{
+  "tool": "request_clarification",
+  "arguments": {
+    "question": "What are the available character classes for drow characters in this RPG system?",
+    "context": "The context mentions character classes but doesn't list specific options"
+  }
+}
+\`\`\`
+
+### Important Guidelines:
+- **Use clarification tools proactively** when you encounter ambiguity
+- **Ask specific questions** to get useful answers
+- **Don't guess** when the information is critical - ask for clarification instead
+- **Provide context** in your question to help get more accurate responses
+
+After receiving clarification, continue with the character creation process.`;
+        }
+        
+        executionPrompt += `\n\nCRITICAL INSTRUCTIONS FOR CHARACTER SHEET OUTPUT:
+
+**YOU MUST FOLLOW THIS EXACT FORMAT FOR CHARACTER SHEET DATA:**
+
+1. After your narrative response, add a section titled "Character Sheet:"
+2. For EACH character sheet field you're updating, use this format:
+   - Field Name: Value
+3. Make sure to include ALL relevant fields (Name, Class, Background, Attributes, etc.)
+
+EXAMPLE OUTPUT:
+
+## Step ${stepIndex + 1}: Assign Attributes
+
+I have rolled the dice and assigned attributes based on the results.
+
+Character Sheet:
+- Strength: 16
+- Dexterity: 14
+- Constitution: 12
+- Intelligence: 10
+- Wisdom: 8
+- Charisma: 13
+
+**IMPORTANT:** Do NOT use JSON format. Use the bullet point format shown above.`;
       }
       
-      const response = await getLMStudioResponse(executionPrompt, []);
-      
-      // Parse the response to extract character sheet updates
-      const stepResult = this.parseStepResult(response, stepIndex);
+      // Execute the step with possible clarification tool calls
+      const stepResult = await this.executeStepWithClarification(executionPrompt, stepIndex);
       
       // Convert step to string representation for Discord display
       const stepDetails = typeof step === 'object' ? step.stepName || JSON.stringify(step) : step;
@@ -340,6 +497,122 @@ Character Sheet State:
   }
 
   /**
+   * Execute a step with clarification tool support
+   * @param {string} prompt - The prompt to send to the LLM
+   * @param {number} stepIndex - Index of the current step
+   * @returns {Promise<object>} Step result with character sheet updates
+   */
+  async executeStepWithClarification(prompt, stepIndex) {
+    try {
+      // First attempt: Try to get a direct response
+      let response = await getLMStudioResponse(prompt, []);
+      
+      // Check if the response indicates a need for clarification
+      const needsClarification = this.detectClarificationNeed(response);
+      
+      if (needsClarification && stepIndex < this.maxRetries) {
+        console.log(`Step ${stepIndex + 1} needs clarification. Attempting to request additional information...`);
+        
+        // Extract the specific question from the response
+        const clarificationQuestion = this.extractClarificationQuestion(response);
+        
+        if (clarificationQuestion) {
+          // Request clarification using the tool
+          const clarificationResult = await executeClarifyTool('request_clarification', {
+            question: clarificationQuestion,
+            context: `Step ${stepIndex + 1}: ${this.steps[stepIndex].stepName || 'Unknown step'}`
+          });
+          
+          if (clarificationResult.success) {
+            // Add the clarification to the prompt and try again
+            const updatedPrompt = `${prompt}\n\n## Clarification Received:\n${clarificationResult.message}`;
+            
+            console.log(`Received clarification, retrying with updated context...`);
+            response = await getLMStudioResponse(updatedPrompt, []);
+          }
+        }
+      }
+      
+      // Parse the response to extract character sheet updates
+      const stepResult = this.parseStepResult(response, stepIndex);
+      
+      return stepResult;
+    } catch (error) {
+      console.error(`Error in executeStepWithClarification:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Detect if a response indicates a need for clarification
+   * @param {string} response - The LLM response to analyze
+   * @returns {boolean} True if clarification is needed
+   */
+  detectClarificationNeed(response) {
+    const lowerResponse = response.toLowerCase();
+    
+    // Check for common phrases indicating missing information
+    const clarificationIndicators = [
+      'need more information',
+      'could not find',
+      'not specified in context',
+      'unclear what',
+      'missing details',
+      'please clarify',
+      'i need to know',
+      'require additional'
+    ];
+    
+    return clarificationIndicators.some(indicator => 
+      lowerResponse.includes(indicator)
+    );
+  }
+
+  /**
+   * Extract a clarification question from an LLM response
+   * @param {string} response - The LLM response to analyze
+   * @returns {string|null} The extracted question or null if not found
+   */
+  extractClarificationQuestion(response) {
+    // Try to find questions in the response
+    const questionMatches = response.match(/(?:question|clarification|need to know)\s*[:\s]+(.+?)(?:\.|$)/i);
+    
+    if (questionMatches && questionMatches[1]) {
+      return questionMatches[1].trim();
+    }
+    
+    // Try to find any sentence ending with a question mark
+    const questionSentences = response.match(/[^.!?]+\?/g);
+    
+    if (questionSentences && questionSentences.length > 0) {
+      // Return the first question found
+      return questionSentences[0].trim();
+    }
+    
+    // If no clear questions, try to find sentences that sound like they need clarification
+    const ambiguousPhrases = [
+      'I am unsure',
+      'cannot determine',
+      'need more context',
+      'require additional information'
+    ];
+    
+    for (const phrase of ambiguousPhrases) {
+      if (response.toLowerCase().includes(phrase)) {
+        // Extract the sentence containing this phrase
+        const sentences = response.split(/[.!?]/);
+        for (const sentence of sentences) {
+          if (sentence.toLowerCase().includes(phrase)) {
+            return sentence.trim();
+          }
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  /**
    * Parse the LLM response to extract character sheet updates
    */
   parseStepResult(response, stepIndex) {
@@ -352,21 +625,63 @@ Character Sheet State:
       characterSheetUpdates: {}
     };
     
+    let inCharacterSheetSection = false;
+    
     for (const line of lines) {
+      // Check if we're entering a Character Sheet section
+      if (line.toLowerCase().includes('character sheet')) {
+        inCharacterSheetSection = true;
+        continue;
+      }
+      
+      // If we're not in the character sheet section, skip this line
+      if (!inCharacterSheetSection) {
+        result.actions.push(line.trim());
+        continue;
+      }
+      
+      // Now process lines that are inside the Character Sheet section
       if (line.startsWith('## Step')) {
         result.stepName = line.replace('## Step', '').trim();
       } else if (line.startsWith('- ') || line.startsWith('* ')) {
-        // Character sheet update
+        // Character sheet update - only extract these in the character sheet section
         const content = line.substring(2).trim();
-        if (content.includes(':') || content.includes('=')) {
-          const [key, value] = content.split(/[:=]/).map(s => s.trim());
-          result.characterSheetUpdates[key] = value;
+        
+        // Only process lines that look like character attributes (short key-value pairs)
+        if (content.includes(':') && !content.toLowerCase().includes('context')) {
+          const parts = content.split(/:\s*/, 2);
+          const key = parts[0].trim();
+          const value = parts[1] ? parts[1].trim() : '';
+          
+          // Validate that this looks like a character attribute
+          // Skip lines with too much text or that seem like instructions
+          if (key.length < 30 && value.length < 200) {
+            result.characterSheetUpdates[key] = value;
+          } else {
+            result.actions.push(content);
+          }
         } else {
           result.actions.push(content);
         }
       } else if (line.trim().length > 0) {
-        // Regular action or description
-        result.actions.push(line.trim());
+        // Try to extract character sheet data from regular lines
+        // Look for patterns like "Name: John", "Class: Fighter", etc.
+        const sheetDataMatch = line.match(/^([A-Za-z][A-Za-z0-9_ ]*[A-Za-z0-9_]):\s*(.+)$/);
+        
+        if (sheetDataMatch) {
+          const key = sheetDataMatch[1].trim();
+          const value = sheetDataMatch[2].trim();
+          
+          // Only add to character sheet if it looks like meaningful data
+          // Skip lines that are too long or seem like general text
+          if (key.length < 30 && value.length < 200) {
+            result.characterSheetUpdates[key] = value;
+          } else {
+            result.actions.push(line.trim());
+          }
+        } else {
+          result.actions.push(line.trim());
+        }
       }
     }
     
@@ -389,22 +704,41 @@ Character Sheet State:
     for (const line of lines) {
       if (!line) continue;
       
-      // Extract step name
-      const stepMatch = line.match(/^STEP\s+\d+[:\s]+(.+)$/i);
+      // Clean up the line - remove blockquote markers and other formatting
+      const cleanLine = this.cleanStepLine(line);
+      
+      // Skip lines that are clearly not step information
+      if (cleanLine.startsWith('---') || cleanLine === 'Context:' || 
+          cleanLine.toLowerCase().includes('character sheet')) {
+        continue;
+      }
+      
+      // Extract step name - look for STEP N: pattern at the beginning
+      const stepMatch = cleanLine.match(/^STEP\s+\d+[:\s]+(.+)$/i);
       if (stepMatch) {
         stepInfo.stepName = stepMatch[1].trim();
         continue;
       }
       
+      // If we don't have a step name yet, try to extract it from the first meaningful line
+      if (!stepInfo.stepName && cleanLine.length > 5 && cleanLine.length < 200) {
+        // Check if this looks like a step description (not CHOICE/OPTIONS/METHOD)
+        const isChoiceOptionsMethod = cleanLine.match(/^(?:CHOICE|OPTIONS|METHOD|WHAT TO CHOOSE|SELECT FROM)[:\s]/i);
+        if (!isChoiceOptionsMethod) {
+          stepInfo.stepName = cleanLine;
+          continue;
+        }
+      }
+      
       // Extract choice description
-      const choiceMatch = line.match(/^(?:CHOICE|WHAT TO CHOOSE)[:\s]+(.+)$/i);
+      const choiceMatch = cleanLine.match(/^(?:CHOICE|WHAT TO CHOOSE)[:\s]+(.+)$/i);
       if (choiceMatch) {
         stepInfo.choice = choiceMatch[1].trim();
         continue;
       }
       
       // Extract options list
-      const optionsMatch = line.match(/^(?:OPTIONS|AVAILABLE OPTIONS|SELECT FROM)[:\s]*(.+)$/i);
+      const optionsMatch = cleanLine.match(/^(?:OPTIONS|AVAILABLE OPTIONS|SELECT FROM)[:\s]*(.+)$/i);
       if (optionsMatch) {
         // Parse comma-separated or bullet-pointed options
         const optionsText = optionsMatch[1].trim();
@@ -413,7 +747,7 @@ Character Sheet State:
       }
       
       // Extract method
-      const methodMatch = line.match(/^(?:METHOD|HOW TO CHOOSE|DECISION METHOD)[:\s]+(.+)$/i);
+      const methodMatch = cleanLine.match(/^(?:METHOD|HOW TO CHOOSE|DECISION METHOD)[:\s]+(.+)$/i);
       if (methodMatch) {
         stepInfo.method = methodMatch[1].trim().toLowerCase();
         
@@ -432,10 +766,43 @@ Character Sheet State:
     
     // If we have a valid step name, return the structured info
     if (stepInfo.stepName) {
+      // Clean up the step name one more time
+      stepInfo.stepName = this.cleanStepLine(stepInfo.stepName);
+      
+      // Remove common prefixes that indicate non-step content
+      const prefixesToRemove = ['METHOD:', 'CHOICE:', 'OPTIONS:'];
+      for (const prefix of prefixesToRemove) {
+        if (stepInfo.stepName.toUpperCase().startsWith(prefix)) {
+          stepInfo.stepName = stepInfo.stepName.substring(prefix.length).trim();
+          break;
+        }
+      }
+      
       return stepInfo;
     }
     
     return null;
+  }
+  
+  /**
+   * Clean up a step line by removing formatting artifacts
+   */
+  cleanStepLine(line) {
+    let cleaned = line;
+    
+    // Remove blockquote markers (>)
+    cleaned = cleaned.replace(/^>\s*/g, '');
+    
+    // Remove markdown quote formatting ("...")
+    cleaned = cleaned.replace(/^["']|["']$/g, '');
+    
+    // Remove asterisks used for emphasis
+    cleaned = cleaned.replace(/\*/g, '');
+    
+    // Remove leading/trailing whitespace
+    cleaned = cleaned.trim();
+    
+    return cleaned;
   }
 
   /**
@@ -462,6 +829,18 @@ Character Sheet State:
    */
   async validateCharacterSheet() {
     try {
+      // Check if character sheet is empty before validating
+      const isEmpty = Object.keys(this.characterSheet).length === 0;
+      
+      if (isEmpty) {
+        console.warn("Skipping validation - character sheet is empty");
+        return { 
+          success: true, 
+          message: 'Character sheet created but no structured data was generated. Validation could not be performed.',
+          warnings: ['Empty character sheet - no structured data to validate']
+        };
+      }
+      
       const validationPrompt = `CRITICAL INSTRUCTIONS - READ CAREFULLY:
 
 You are validating a character sheet against RPG rulebook guidelines.
@@ -489,40 +868,95 @@ Return your validation result in this format:
       if (response.includes('Validation Result: PASS')) {
         return { success: true, message: 'Character sheet validated successfully' };
       } else {
-        throw new Error(`Character sheet validation failed: ${response}`);
+        // Validation failed but don't throw - just return with warnings
+        return { 
+          success: true, 
+          message: `Character sheet created with validation warnings`,
+          warnings: [response]
+        };
       }
     } catch (error) {
       console.error("Error validating character sheet:", error);
       // Don't fail the entire process due to validation errors
-      return { success: true, message: `Character sheet created with warnings: ${error.message}` };
+      return { 
+        success: true, 
+        message: `Character sheet created but validation encountered an error`,
+        warnings: [error.message]
+      };
     }
   }
 
   /**
    * Format the final character sheet for display
+   * @param {Object} validationResult - Optional validation result object with warnings
    */
-  formatCharacterSheet() {
+  formatCharacterSheet(validationResult) {
     let output = "## 🎲 Character Creation Complete!\n\n";
     
-    if (Object.keys(this.characterSheet).length === 0) {
-      // If no structured data, use the last step's result
-      const lastStep = this.progressUpdates[this.progressUpdates.length - 1];
-      if (lastStep && lastStep.result) {
-        output += `**Character Sheet:**\n${JSON.stringify(lastStep.result.characterSheetUpdates, null, 2)}\n`;
+    // Add validation status if available
+    if (validationResult) {
+      const hasWarnings = validationResult.warnings && validationResult.warnings.length > 0;
+      if (hasWarnings || !validationResult.message.includes('validated successfully')) {
+        output += `**Validation Status:** ⚠️ ${validationResult.message}\n\n`;
+      } else {
+        output += `**Validation Status:** ✅ ${validationResult.message}\n\n`;
       }
-    } else {
-      output += `**Character Sheet:**\n${JSON.stringify(this.characterSheet, null, 2)}\n`;
+      
+      // Add warnings section if present
+      if (validationResult.warnings && validationResult.warnings.length > 0) {
+        output += "### ⚠️ Validation Warnings:\n";
+        validationResult.warnings.forEach((warning, i) => {
+          output += `${i + 1}. ${warning}\n`;
+        });
+        output += "\n";
+      }
     }
     
-    // Add progress report
-    if (this.progressUpdates.length > 0) {
-      output += "\n## 📋 Progress Report:\n";
-      this.progressUpdates.forEach((update, i) => {
-        output += `${i + 1}. **${update.step}**: ${update.status}\n`;
-        if (update.details) {
-          output += `   - ${update.details}\n`;
-        }
-      });
+    // Build character sheet from all collected updates
+    const allUpdates = { ...this.characterSheet };
+    
+    // Also collect any updates from progress updates that might have been missed
+    for (const update of this.progressUpdates) {
+      if (update.result && update.result.characterSheetUpdates) {
+        Object.assign(allUpdates, update.result.characterSheetUpdates);
+      }
+    }
+    
+    if (Object.keys(allUpdates).length > 0) {
+      output += `**Character Sheet:**\n${JSON.stringify(allUpdates, null, 2)}\n`;
+    } else {
+      // If still no structured data, provide a clear message
+      output += "**Character Sheet:** No structured character data was generated.\n";
+      output += "This may indicate that the LLM did not produce character sheet updates in the expected format.\n\n";
+      
+      // Add a summary of steps instead of using step details as character data
+      if (this.progressUpdates.length > 0) {
+        output += "### Steps Completed:\n";
+        this.progressUpdates.forEach((update, i) => {
+          const statusIcon = update.status === 'completed' ? '✅' : '❌';
+          let stepName = update.step;
+          
+          // Extract step name from structured result if available
+          if (update.result && update.result.stepName) {
+            stepName = update.result.stepName;
+          } else if (typeof update.details === 'string') {
+            stepName = update.details.split('\n')[0];
+          }
+          
+          output += `${i + 1}. ${statusIcon} **${stepName}**\n`;
+          if (update.details && update.details !== stepName) {
+            output += `   - ${update.details}\n`;
+          }
+        });
+      }
+      
+      // Add a note about what the character sheet should contain
+      output += "\n### Expected Character Sheet Fields:\n";
+      output += "- Name: Character's name\n";
+      output += "- Ancestry: Character's race/ancestry (e.g., Drow)\n";
+      output += "- Calling: Character's class or role\n";
+      output += "- Skills: Key skills and abilities\n";
+      output += "- Background: Brief background story elements\n";
     }
     
     return output;
@@ -563,9 +997,10 @@ Return your validation result in this format:
       
       return {
         success: true,
-        formattedSheet: this.formatCharacterSheet(),
+        formattedSheet: this.formatCharacterSheet(validation),
         progressUpdates: this.progressUpdates,
-        characterSheet: this.characterSheet
+        characterSheet: this.characterSheet,
+        validation: validation
       };
     } catch (error) {
       console.error("Error in character generation:", error);
