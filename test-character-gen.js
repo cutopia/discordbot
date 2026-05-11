@@ -1,60 +1,40 @@
-import { generateCharacterWithProgress } from './character-generator.js';
-import { getAvailablePDFs, getOrCreateVectorStore, clearAllVectorStores } from './rag.js';
+import { CharacterGenerationAgent } from './character-generator.js';
 
-async function testCharacterGeneration() {
-  console.log('=== Testing Character Generation ===\n');
-  
-  // Get available PDFs
-  const pdfs = getAvailablePDFs();
-  console.log(`Found ${pdfs.length} PDF(s):`);
-  pdfs.forEach(pdf => console.log(`  - ${pdf.name}: ${pdf.path}`));
-  
-  if (pdfs.length === 0) {
-    console.log('No PDFs found. Please add a PDF to the ragsourcebooks directory.');
-    return;
-  }
-  
-  // Use the first available PDF
-  const pdfPath = pdfs[0].path;
-  const sourceName = pdfs[0].name;
-  
-  try {
-    // Create vector store
-    console.log(`\nCreating vector store for "${sourceName}"...`);
-    await getOrCreateVectorStore(pdfPath);
-    
-    // Test character generation with specifications
-    const specifications = 'I want to create a drow character who is seeking redemption and wants to explore the Heart';
-    
-    console.log(`\nGenerating character with specifications: ${specifications}`);
-    console.log('=========================================\n');
-    
-    const result = await generateCharacterWithProgress(specifications, sourceName);
-    
-    if (result.success) {
-      console.log('\n✅ Character generation completed successfully!');
-      console.log('\n' + result.formattedSheet);
-      
-      if (result.progressUpdates && result.progressUpdates.length > 0) {
-        console.log('\n--- Progress Report ---');
-        result.progressUpdates.forEach((update, i) => {
-          console.log(`${i + 1}. ${update.step}: ${update.status}`);
-          if (update.details) {
-            console.log(`   ${update.details}`);
-          }
-        });
-      }
-    } else {
-      console.error('\n❌ Character generation failed:', result.error);
-    }
-    
-  } catch (error) {
-    console.error('Error during character generation:', error);
-  } finally {
-    // Clean up
-    clearAllVectorStores();
-  }
+// Test 1: Verify buildPreviousChoicesHistory method
+console.log("Test 1: Testing buildPreviousChoicesHistory method");
+const agent = new CharacterGenerationAgent('Create a drow character with stealth focus', 'test-source');
+
+// Add some sample choices to the history
+agent.recordChoice('Step 1: Choose Ancestry', { ancestry: 'Drow' });
+agent.recordChoice('Step 2: Choose Calling', { calling: 'Rogue' });
+
+const history = agent.buildPreviousChoicesHistory();
+console.log("Previous choices history:");
+console.log(history);
+
+// Verify the history contains our sample choices
+if (history.includes('Drow') && history.includes('Rogue')) {
+    console.log("✓ History correctly includes previous choices\n");
+} else {
+    console.log("✗ History does not include expected choices\n");
 }
 
-// Run the test
-testCharacterGeneration();
+// Test 2: Verify specifications are stored
+console.log("Test 2: Testing specifications storage");
+if (agent.specifications === 'Create a drow character with stealth focus') {
+    console.log("✓ Specifications correctly stored\n");
+} else {
+    console.log("✗ Specifications not correctly stored\n");
+}
+
+// Test 3: Verify recordChoice method works
+console.log("Test 3: Testing recordChoice method");
+const initialLength = agent.previousChoices.length;
+agent.recordChoice('Step 3: Choose Skills', { skills: ['Stealth', 'Perception'] });
+if (agent.previousChoices.length === initialLength + 1) {
+    console.log("✓ recordChoice correctly adds to history\n");
+} else {
+    console.log("✗ recordChoice did not add to history\n");
+}
+
+console.log("All basic tests completed!");

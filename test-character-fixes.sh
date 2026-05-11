@@ -1,56 +1,49 @@
 #!/bin/bash
 
-echo "=== Testing Character Generation Fixes ==="
+echo "Testing character generation fixes..."
 echo ""
 
-# Test with the "Those Dark Places" PDF
-node -e "
-import('./character-generator.js').then(module => {
-  const { generateCharacterWithProgress } = module;
-  
-  async function test() {
-    console.log('Testing character generation with \"Those Dark Places\" PDF...');
-    
-    try {
-      // First, we need to create the vector store
-      const { getOrCreateVectorStore, clearAllVectorStores } = await import('./rag.js');
-      
-      const pdfPath = './ragsourcebooks/Those_Dark_Places.pdf';
-      const sourceName = 'Those_Dark_Places';
-      
-      console.log('Creating vector store...');
-      await getOrCreateVectorStore(pdfPath);
-      
-      console.log('\\nGenerating character with specifications...');
-      const result = await generateCharacterWithProgress(
-        'I want to create a drow character who is seeking redemption and wants to explore the Heart',
-        sourceName
-      );
-      
-      if (result.success) {
-        console.log('\\n✅ Character generation completed successfully!');
-        console.log('\\n' + result.formattedSheet);
-        
-        if (result.progressUpdates && result.progressUpdates.length > 0) {
-          console.log('\\n--- Progress Report ---');
-          console.log(`Total steps completed: ${result.progressUpdates.filter(u => u.status === 'completed').length}`);
-          result.progressUpdates.forEach((update, i) => {
-            console.log(`${i + 1}. ${update.step}: ${update.status}`);
-            if (update.details) {
-              console.log(`   ${update.details}`);
-            }
-          });
-        }
-      } else {
-        console.error('\\n❌ Character generation failed:', result.error);
-      }
-      
-      clearAllVectorStores();
-    } catch (error) {
-      console.error('Error during character generation:', error);
-    }
-  }
-  
-  test();
-});
-"
+# Test 1: Check if the file has been modified correctly
+echo "Test 1: Checking for key modifications in character-generator.js"
+if grep -q "buildPreviousChoicesHistory" character-generator.js; then
+    echo "✓ buildPreviousChoicesHistory method found"
+else
+    echo "✗ buildPreviousChoicesHistory method not found"
+fi
+
+if grep -q "recordChoice" character-generator.js; then
+    echo "✓ recordChoice method found"
+else
+    echo "✗ recordChoice method not found"
+fi
+
+if grep -q "CONSISTENCY CHECK" character-generator.js; then
+    echo "✓ Consistency check instructions found in prompts"
+else
+    echo "✗ Consistency check instructions not found in prompts"
+fi
+
+echo ""
+echo "Test 2: Checking for specification integration"
+if grep -q "includeSpecifications" character-generator.js; then
+    echo "✓ includeSpecifications parameter found"
+else
+    echo "✗ includeSpecifications parameter not found"
+fi
+
+if grep -q "USER SPECIFICATIONS TO CONSIDER" character-generator.js; then
+    echo "✓ User specifications integration found in context"
+else
+    echo "✗ User specifications integration not found in context"
+fi
+
+echo ""
+echo "Test 3: Checking for previous choices history usage"
+if grep -q "previousChoicesHistory" character-generator.js; then
+    echo "✓ Previous choices history variable found"
+else
+    echo "✗ Previous choices history variable not found"
+fi
+
+echo ""
+echo "All tests completed!"

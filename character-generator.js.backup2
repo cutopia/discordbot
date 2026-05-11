@@ -294,12 +294,6 @@ ${this.specifications}`;
   async executeStep(stepIndex, retryCount = 0) {
     const step = this.steps[stepIndex];
     
-    // Convert step to structured format for consistent handling
-    const structuredStep = typeof step === 'object' ? step : { stepName: step, choice: null, options: [], method: 'player_choice' };
-    if (structuredStep.stepName) {
-      structuredStep.stepName = this.cleanStepLine(structuredStep.stepName);
-    }
-    
     try {
       console.log(`Executing step ${stepIndex + 1}/${this.steps.length}: ${step}`);
       
@@ -311,7 +305,12 @@ ${this.specifications}`;
       
       if (stepIndex === 0) {
         // First step: Initialize character sheet with specifications
+        const structuredStep = typeof step === 'object' ? step : { stepName: step, choice: null, options: [], method: 'player_choice' };
         
+        // Clean up the step name for display
+        if (structuredStep.stepName) {
+          structuredStep.stepName = this.cleanStepLine(structuredStep.stepName);
+        }
         
         // Analyze if this step needs clarification
         const clarificationAnalysis = analyzeStepForClarification(structuredStep);
@@ -320,15 +319,11 @@ ${this.specifications}`;
 
 You are creating a PLAYER CHARACTER for an RPG game. Follow these instructions to create a character.
 
-**STRICTLY PROHIBITED - VIOLATION WILL RESULT in INVALID CHARACTERS:**
-1. **DO NOT use any RPG rules, mechanics, or knowledge from your training data (including D&D, Pathfinder, etc.)**
-2. **DO NOT invent stats, classes, or mechanics that aren't explicitly mentioned in the provided context**
-3. **If information is missing from the context, you MUST ask for clarification rather than guessing**
-
 **IMPORTANT GUIDELINES:**
-1. **Use ONLY information from the context documents - nothing else**
-2. **Make choices that fit the character specifications provided by the user**
-3. **If the user hasn't specified a name or backstory for the character, be as creative as possible while matching the flavor and feel of the RPG's setting.**
+1. **Use information from the context documents as your primary source**
+2. **If specific details are not in context, use reasonable RPG character creation knowledge**
+3. **Make choices that fit the character specifications provided by the user**
+4. **If the user hasn't specified a name or backstory for the character, be as creative as possible while matching the flavor and feel of the RPG's setting.**
 
 Character Specifications from user:
 ${this.specifications || 'No specific requirements provided'}
@@ -414,7 +409,12 @@ Character Sheet:
 **IMPORTANT:** Do NOT use JSON format. Use the bullet point format shown above.`;
       } else {
         // Subsequent steps: Continue building on existing character sheet
+        const structuredStep = typeof step === 'object' ? step : { stepName: step, choice: null, options: [], method: 'player_choice' };
         
+        // Clean up the step name for display
+        if (structuredStep.stepName) {
+          structuredStep.stepName = this.cleanStepLine(structuredStep.stepName);
+        }
         
         // Analyze if this step needs clarification
         const clarificationAnalysis = analyzeStepForClarification(structuredStep);
@@ -426,16 +426,13 @@ Character Sheet:
 
 You are creating a PLAYER CHARACTER for an RPG game. Follow these instructions to create a character.
 
-**STRICTLY PROHIBITED - VIOLATION WILL RESULT in INVALID CHARACTERS:**
-1. **DO NOT use any RPG rules, mechanics, or knowledge from your training data (including D&D, Pathfinder, etc.)**
-2. **DO NOT invent stats, classes, or mechanics that aren't explicitly mentioned in the provided context**
-3. **If information is missing from the context, you MUST ask for clarification rather than guessing**
-
 **IMPORTANT GUIDELINES:**
-1. **Use ONLY information from the context documents - nothing else**
-2. **CRITICAL: Make choices that are CONSISTENT with all previous character creation decisions**
-3. **Review ALL previous choices before making new ones to avoid contradictions**
-4. **Focus on creating an engaging and balanced character**
+1. **Use information from the context documents as your primary source**
+2. **If specific details are not in context, use reasonable RPG character creation knowledge**
+3. **Make choices that fit the character specifications provided by the user**
+4. **CRITICAL: Make choices that are CONSISTENT with all previous character creation decisions**
+5. **Review ALL previous choices before making new ones to avoid contradictions**
+6. **Focus on creating an engaging and balanced character**
 
 Character Specifications from user:
 ${this.specifications || 'No specific requirements provided'}
@@ -531,7 +528,7 @@ Character Sheet:
       
       // Record the choice made in this step for future consistency checking
       if (stepResult && stepResult.characterSheetUpdates) {
-        this.recordChoice(structuredStep.stepName || (typeof step === 'object' ? step.stepName || JSON.stringify(step) : step), stepResult.characterSheetUpdates);
+        this.recordChoice(structuredStep.stepName || stepDetails, stepResult.characterSheetUpdates);
       }
       
       // Convert step to string representation for Discord display
@@ -906,22 +903,18 @@ Character Sheet:
 
 You are validating a character sheet against RPG rulebook guidelines.
 
-**STRICTLY PROHIBITED - VIOLATION WILL RESULT in INVALID CHARACTERS:**
-1. **DO NOT use any RPG rules, mechanics, or knowledge from your training data (including D&D, Pathfinder, etc.)**
-2. **DO NOT invent validation criteria that aren't explicitly mentioned in the provided context**
-
 **IMPORTANT GUIDELINES:**
-1. **Use ONLY context documents as your source for validation rules**
-3. **If validation criteria are missing from the context, you MUST ask for clarification rather than guessing**
+1. **Use context documents as your primary source for validation rules**
+2. **If specific validation criteria are not in context, use reasonable RPG character creation knowledge**
+3. **Focus on creating a balanced and engaging character**
 
 Character Sheet:
 ${JSON.stringify(this.characterSheet, null, 2)}
 
 Instructions:
-1. **STRICTLY PROHIBITED: Do NOT use any RPG rules from your training data**
-2. Check if all required fields are present (ONLY based on provided context)
-3. Verify that values are within acceptable ranges
-4. Ensure consistency between different parts of the character
+1. Check if all required fields are present (based on context or reasonable RPG standards)
+2. Verify that values are within acceptable ranges
+3. Ensure consistency between different parts of the character
 
 Return your validation result in this format:
 ## Validation Result: [PASS/FAIL]
