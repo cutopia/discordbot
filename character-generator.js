@@ -24,6 +24,7 @@ class CharacterGenerationAgent {
     this.currentStepIndex = 0;
     this.progressUpdates = [];
     this.maxRetries = 3;
+    this.maxValidationRetries = 3; // Maximum revalidation attempts
   }
   
   /**
@@ -688,61 +689,80 @@ Character Sheet:
     
     let inCharacterSheetSection = false;
     
-    for (const line of lines) {
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      
       // Check if we're entering a Character Sheet section
-      if (line.toLowerCase().includes('character sheet')) {
+      if (!inCharacterSheetSection && 
+          (line.toLowerCase().includes('character sheet') || 
+           line.toLowerCase().includes('character data:') ||
+           line.toLowerCase().includes('final character:'))) {
         inCharacterSheetSection = true;
         continue;
       }
       
       // If we're not in the character sheet section, skip this line
       if (!inCharacterSheetSection) {
-        result.actions.push(line.trim());
+        result.actions.push(line);
         continue;
       }
       
-      // Now process lines that are inside the Character Sheet section
-      if (line.startsWith('## Step')) {
-        result.stepName = line.replace('## Step', '').trim();
-      } else if (line.startsWith('- ') || line.startsWith('* ')) {
-        // Character sheet update - only extract these in the character sheet section
+      // Skip empty lines and section headers
+      if (line === '' || line.startsWith('## ') || line.startsWith('### ')) {
+        if (line.startsWith('## Step')) {
+          result.stepName = line.replace('## Step', '').trim();
+        }
+        continue;
+      }
+      
+      // Try to extract character sheet data - handle multiple formats
+      let extractedData = false;
+      
+      // Format 1: "- Key: Value" or "* Key: Value"
+      if (line.startsWith('- ') || line.startsWith('* ')) {
         const content = line.substring(2).trim();
         
-        // Only process lines that look like character attributes (short key-value pairs)
-        if (content.includes(':') && !content.toLowerCase().includes('context')) {
+        if (content.includes(':')) {
           const parts = content.split(/:\s*/, 2);
           const key = parts[0].trim();
           const value = parts[1] ? parts[1].trim() : '';
           
           // Validate that this looks like a character attribute
-          // Skip lines with too much text or that seem like instructions
-          if (key.length < 30 && value.length < 200) {
+          if (key.length > 0 && key.length < 50 && value.length > 0 && value.length < 500) {
             result.characterSheetUpdates[key] = value;
-          } else {
-            result.actions.push(content);
+            extractedData = true;
           }
-        } else {
-          result.actions.push(content);
         }
-      } else if (line.trim().length > 0) {
-        // Try to extract character sheet data from regular lines
-        // Look for patterns like "Name: John", "Class: Fighter", etc.
-        const sheetDataMatch = line.match(/^([A-Za-z][A-Za-z0-9_ ]*[A-Za-z0-9_]):\s*(.+)$/);
+      }
+      
+      // Format 2: "Key: Value" (without bullet point)
+      if (!extractedData && line.includes(':')) {
+        const parts = line.split(/:\s*/, 2);
+        const key = parts[0].trim();
+        const value = parts[1] ? parts[1].trim() : '';
         
-        if (sheetDataMatch) {
-          const key = sheetDataMatch[1].trim();
-          const value = sheetDataMatch[2].trim();
-          
-          // Only add to character sheet if it looks like meaningful data
-          // Skip lines that are too long or seem like general text
-          if (key.length < 30 && value.length < 200) {
-            result.characterSheetUpdates[key] = value;
-          } else {
-            result.actions.push(line.trim());
-          }
-        } else {
-          result.actions.push(line.trim());
+        // Validate that this looks like a character attribute
+        if (key.length > 0 && key.length < 50 && value.length > 0 && value.length < 500) {
+          result.characterSheetUpdates[key] = value;
+          extractedData = true;
         }
+      }
+      
+      // Format 3: "Key - Value" (dash separator)
+      if (!extractedData && line.includes(' - ')) {
+        const parts = line.split(/\s+-\s+/, 2);
+        const key = parts[0].trim();
+        const value = parts[1] ? parts[1].trim() : '';
+        
+        // Validate that this looks like a character attribute
+        if (key.length > 0 && key.length < 50 && value.length > 0 && value.length < 500) {
+          result.characterSheetUpdates[key] = value;
+        }
+      }
+      
+      // If we couldn't extract data, add to actions for debugging
+      if (!extractedData && line.length > 0) {
+        result.actions.push(line);
       }
     }
     
@@ -888,7 +908,7 @@ Character Sheet:
   /**
    * Validate the character sheet after all steps are complete
    */
-  async validateCharacterSheet() {
+  async validateCharacterSheet(retryCount = 0) {
     try {
       // Check if character sheet is empty before validating
       const isEmpty = Object.keys(this.characterSheet).length === 0;
@@ -898,6 +918,7 @@ Character Sheet:
         return { 
           success: true, 
           message: 'Character sheet created but no structured data was generated. Validation could not be performed.',
+          retryCount: retryCount,
           warnings: ['Empty character sheet - no structured data to validate']
         };
       }
@@ -931,24 +952,270 @@ Return your validation result in this format:
       
       // Parse validation result
       if (response.includes('Validation Result: PASS')) {
-        return { success: true, message: 'Character sheet validated successfully' };
-      } else {
-        // Validation failed but don't throw - just return with warnings
         return { 
           success: true, 
-          message: `Character sheet created with validation warnings`,
-          warnings: [response]
+          message: 'Character sheet validated successfully',
+          retryCount: retryCount
         };
+      } else {
+        // Validation failed - check if we can retry
+        if (retryCount < this.maxValidationRetries) {
+          console.log(`Validation failed (attempt ${retryCount + 1}/${this.maxValidationRetries + 1}), will retry after step re-execution`);
+          return { 
+            success: false, 
+            message: `Character sheet validation failed`,
+            warnings: [response],
+            shouldRetry: true,
+            retryCount: retryCount
+          };
+        } else {
+          // Max retries exceeded - return with warnings but mark as complete
+          console.log(`Max validation retries (${this.maxValidationRetries}) exceeded, proceeding with warnings`);
+          return { 
+            success: true, 
+            message: `Character sheet created with validation warnings after ${this.maxValidationRetries} retry attempts`,
+            warnings: [response],
+            shouldRetry: false,
+            retryCount: retryCount
+          };
+        }
       }
     } catch (error) {
       console.error("Error validating character sheet:", error);
-      // Don't fail the entire process due to validation errors
-      return { 
-        success: true, 
-        message: `Character sheet created but validation encountered an error`,
-        warnings: [error.message]
-      };
+      
+      // Check if we can retry on error
+      if (retryCount < this.maxValidationRetries) {
+        console.log(`Validation error (attempt ${retryCount + 1}/${this.maxValidationRetries + 1}), will retry after step re-execution`);
+        return { 
+          success: false, 
+          message: `Character sheet validation encountered an error`,
+          warnings: [error.message],
+          shouldRetry: true,
+          retryCount: retryCount
+        };
+      } else {
+        // Max retries exceeded - return with warnings but mark as complete
+        console.log(`Max validation retries (${this.maxValidationRetries}) exceeded, proceeding with error`);
+        return { 
+          success: true, 
+          message: `Character sheet created but validation encountered an error after ${this.maxValidationRetries} retry attempts`,
+          warnings: [error.message],
+          shouldRetry: false,
+          retryCount: retryCount
+        };
+      }
     }
+  }
+
+  /**
+   * Re-execute a specific step to fix validation issues
+   */
+  async reexecuteStep(stepIndex) {
+    try {
+      console.log(`Re-executing step ${stepIndex + 1}/${this.steps.length} to address validation issues`);
+      
+      // Get context for this step from the RAG source (include specifications for better guidance)
+      const context = await this.getStepContext(this.steps[stepIndex], true);
+      
+      // Build the prompt for executing this step with emphasis on fixing previous issues
+      let executionPrompt;
+      
+      if (stepIndex === 0) {
+        // First step: Initialize character sheet with specifications
+        
+        // Analyze if this step needs clarification
+        const structuredStep = typeof this.steps[0] === 'object' ? this.steps[0] : { 
+          stepName: this.steps[0], 
+          choice: null, 
+          options: [], 
+          method: 'player_choice' 
+        };
+        
+        executionPrompt = `CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+You are creating a PLAYER CHARACTER for an RPG game. This is the FIRST step in character creation.
+
+**IMPORTANT GUIDELINES:**
+1. **Use ONLY information from the context documents - nothing else**
+2. **Make choices that fit the character specifications provided by the user**
+3. **If the user hasn't specified a name or backstory for the character, be as creative as possible while matching the flavor and feel of the RPG's setting.**
+
+Character Specifications from user:
+${this.specifications || 'No specific requirements provided'}
+
+Current Step (1/${this.steps.length}):
+Step: ${structuredStep.stepName}
+${structuredStep.choice ? `Choice: ${structuredStep.choice}` : ''}
+${structuredStep.options.length > 0 ? `Options: ${structuredStep.options.join(', ')}` : ''}
+${structuredStep.method && structuredStep.method !== 'player_choice' ? `Method: ${structuredStep.method}` : ''}
+
+Context from RPG rulebook:
+${context}`;
+
+        executionPrompt += `\n\nCRITICAL INSTRUCTIONS FOR CHARACTER SHEET OUTPUT:
+
+**YOU MUST FOLLOW THIS EXACT FORMAT FOR CHARACTER SHEET DATA:**
+
+1. After your narrative response, add a section titled "Character Sheet:"
+2. For EACH character sheet field you're updating, use this format:
+   - Field Name: Value
+3. Make sure to include ALL relevant fields (Name, Class, Background, Attributes, etc.)
+
+EXAMPLE OUTPUT:
+
+## Step 1: Determine Character Role/Archetype
+
+I have analyzed the military setting and decided to create a disciplined soldier character with strong leadership qualities.
+
+Character Sheet:
+- Name: Captain John Smith
+- Class: Soldier
+- Background: Military Veteran  
+- Alignment: Lawful Good
+- Strength: 16
+- Dexterity: 14
+
+**IMPORTANT:** Do NOT use JSON format. Use the bullet point format shown above.`;
+      } else {
+        // Subsequent steps: Continue building on existing character sheet
+        
+        // Analyze if this step needs clarification
+        const structuredStep = typeof this.steps[stepIndex] === 'object' ? this.steps[stepIndex] : { 
+          stepName: this.steps[stepIndex], 
+          choice: null, 
+          options: [], 
+          method: 'player_choice' 
+        };
+        
+        // Build comprehensive history of previous choices
+        const previousChoicesHistory = this.buildPreviousChoicesHistory();
+        
+        executionPrompt = `CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+You are creating a PLAYER CHARACTER for an RPG game. This is step ${stepIndex + 1} of ${this.steps.length}.
+
+**IMPORTANT GUIDELINES:**
+1. **Use ONLY information from the context documents - nothing else**
+2. **CRITICAL: Make choices that are CONSISTENT with all previous character creation decisions**
+3. **Review ALL previous choices before making new ones to avoid contradictions**
+4. **Focus on creating an engaging and balanced character**
+
+Character Specifications from user:
+${this.specifications || 'No specific requirements provided'}
+
+Current Step (${stepIndex + 1}/${this.steps.length}):
+Step: ${structuredStep.stepName}
+${structuredStep.choice ? `Choice: ${structuredStep.choice}` : ''}
+${structuredStep.options.length > 0 ? `Options: ${structuredStep.options.join(', ')}` : ''}
+${structuredStep.method && structuredStep.method !== 'player_choice' ? `Method: ${structuredStep.method}` : ''}
+
+Previous Steps Completed:
+${this.steps.slice(0, stepIndex).map((s, i) => `${i + 1}. ${typeof s === 'object' ? s.stepName : s}`).join('\n')}
+
+${previousChoicesHistory}
+
+Context from RPG rulebook:
+${context}`;
+
+        executionPrompt += `\n\nCRITICAL INSTRUCTIONS FOR CHARACTER SHEET OUTPUT:
+
+**YOU MUST FOLLOW THIS EXACT FORMAT FOR CHARACTER SHEET DATA:**
+
+1. After your narrative response, add a section titled "Character Sheet:"
+2. For EACH character sheet field you're updating, use this format:
+   - Field Name: Value
+3. Make sure to include ALL relevant fields (Name, Class, Background, Attributes, etc.)
+
+**CONSISTENCY CHECK - BEFORE FINALIZING YOUR CHOICE:**
+- Review your previous choices and ensure this new choice doesn't contradict them
+- Consider how this choice fits with the user's specifications
+- If you need to adjust a previous choice to maintain consistency, do so now
+
+EXAMPLE OUTPUT:
+
+## Step ${stepIndex + 1}: Assign Attributes
+
+I have rolled the dice and assigned attributes based on the results.
+
+Character Sheet:
+- Strength: 16
+- Dexterity: 14
+- Constitution: 12
+- Intelligence: 10
+- Wisdom: 8
+- Charisma: 13
+
+**IMPORTANT:** Do NOT use JSON format. Use the bullet point format shown above.`;
+      }
+      
+      // Execute the step with possible clarification tool calls
+      const stepResult = await this.executeStepWithClarification(executionPrompt, stepIndex);
+      
+      // Record the choice made in this step for future consistency checking
+      if (stepResult && stepResult.characterSheetUpdates) {
+        this.recordChoice(structuredStep.stepName || (typeof this.steps[stepIndex] === 'object' ? this.steps[stepIndex].stepName || JSON.stringify(this.steps[stepIndex]) : this.steps[stepIndex]), stepResult.characterSheetUpdates);
+      }
+      
+      // Convert step to string representation for Discord display
+      const stepDetails = typeof this.steps[stepIndex] === 'object' ? this.steps[stepIndex].stepName || JSON.stringify(this.steps[stepIndex]) : this.steps[stepIndex];
+      
+      this.progressUpdates.push({
+        step: `step_${stepIndex + 1}_retry`,
+        status: "completed",
+        details: stepDetails,
+        result: stepResult
+      });
+      
+      return { success: true, result: stepResult };
+    } catch (error) {
+      console.error(`Error re-executing step ${stepIndex + 1}:`, error);
+      throw new Error(`Failed to re-execute step ${stepIndex + 1}: "${this.steps[stepIndex]}" after retry. Error: ${error.message}`);
+    }
+  }
+
+  /**
+   * Validate character sheet with retry logic (up to maxValidationRetries attempts)
+   */
+  async validateCharacterSheetWithRetry() {
+    let validationResult;
+    let attempt = 0;
+    
+    // First validation attempt
+    console.log(`Starting character validation (attempt ${attempt + 1}/${this.maxValidationRetries + 1})`);
+    validationResult = await this.validateCharacterSheet(attempt);
+    
+    // If validation fails and we can retry, re-execute steps and revalidate
+    while (
+      !validationResult.success || 
+      (validationResult.shouldRetry && attempt < this.maxValidationRetries)
+    ) {
+      if (!validationResult.success || validationResult.shouldRetry) {
+        attempt++;
+        console.log(`Re-executing all character creation steps to address validation issues (attempt ${attempt}/${this.maxValidationRetries})`);
+        
+        // Re-execute all steps
+        for (let i = 0; i < this.steps.length; i++) {
+          await this.reexecuteStep(i);
+          
+          // Update character sheet with results from this step
+          if (this.progressUpdates[this.progressUpdates.length - 1] && 
+              this.progressUpdates[this.progressUpdates.length - 1].result && 
+              this.progressUpdates[this.progressUpdates.length - 1].result.characterSheetUpdates) {
+            Object.assign(this.characterSheet, this.progressUpdates[this.progressUpdates.length - 1].result.characterSheetUpdates);
+          }
+        }
+        
+        // Revalidate
+        console.log(`Revalidating character sheet (attempt ${attempt + 1}/${this.maxValidationRetries})`);
+        validationResult = await this.validateCharacterSheet(attempt);
+      }
+      
+      if (attempt >= this.maxValidationRetries) {
+        break;
+      }
+    }
+    
+    return validationResult;
   }
 
   /**
@@ -988,7 +1255,77 @@ Return your validation result in this format:
     }
     
     if (Object.keys(allUpdates).length > 0) {
-      output += `**Character Sheet:**\n${JSON.stringify(allUpdates, null, 2)}\n`;
+      output += "### 📋 Character Sheet\n\n";
+      
+      // Group attributes by category for better organization
+      const categories = {
+        basic: ['Name', 'Class', 'Race', 'Background', 'Alignment'],
+        attributes: ['Strength', 'Dexterity', 'Constitution', 'Intelligence', 'Wisdom', 'Charisma'],
+        combat: ['Hit Points', 'Armor Class', 'Speed', 'Proficiency Bonus'],
+        skills: [],
+        other: []
+      };
+      
+      // Categorize each attribute
+      for (const [key, value] of Object.entries(allUpdates)) {
+        const lowerKey = key.toLowerCase();
+        let categorized = false;
+        
+        for (const category in categories) {
+          if (category === 'other') continue;
+          
+          const categoryKeys = categories[category];
+          if (categoryKeys.some(k => lowerKey.includes(k.toLowerCase()))) {
+            categories[category].push(key);
+            categorized = true;
+            break;
+          }
+        }
+        
+        if (!categorized) {
+          categories.other.push(key);
+        }
+      }
+      
+      // Output each category with proper formatting
+      for (const [category, keys] of Object.entries(categories)) {
+        if (keys.length === 0 || 
+            (category !== 'other' && keys.every(k => !Object.keys(allUpdates).includes(k)))) {
+          continue;
+        }
+        
+        const categoryHeaders = {
+          basic: '**Basic Information**',
+          attributes: '**Attributes**',
+          combat: '**Combat Stats**',
+          skills: '**Skills & Abilities**',
+          other: '**Other Details**'
+        };
+        
+        output += `\n${categoryHeaders[category]}\n`;
+        
+        for (const key of keys) {
+          if (allUpdates.hasOwnProperty(key)) {
+            const value = allUpdates[key];
+            // Format the value to handle multi-line content
+            const formattedValue = String(value).replace(/\n/g, ' ');
+            output += `- **${key}:** ${formattedValue}\n`;
+          }
+        }
+      }
+      
+      // Add any remaining attributes not in categories
+      const categorizedKeys = Object.values(categories).flat();
+      const uncategorized = Object.keys(allUpdates).filter(k => !categorizedKeys.includes(k));
+      
+      if (uncategorized.length > 0) {
+        output += `\n**Additional Information**\n`;
+        for (const key of uncategorized) {
+          const value = allUpdates[key];
+          const formattedValue = String(value).replace(/\n/g, ' ');
+          output += `- **${key}:** ${formattedValue}\n`;
+        }
+      }
     } else {
       // If still no structured data, provide a clear message
       output += "**Character Sheet:** No structured character data was generated.\n";
@@ -1028,7 +1365,7 @@ Return your validation result in this format:
   }
 
   /**
-   * Run the complete character generation process
+   * Run the complete character generation process with retry logic for validation
    */
   async generateCharacter() {
     try {
@@ -1055,10 +1392,26 @@ Return your validation result in this format:
         }
       }
       
-      // Step 3: Validate the final character sheet
-      const validation = await this.validateCharacterSheet();
+      // Log character sheet size for debugging
+      const charSheetKeys = Object.keys(this.characterSheet);
+      console.log(`Character sheet contains ${charSheetKeys.length} properties after step execution`);
+      if (charSheetKeys.length === 0) {
+        console.warn("⚠️ Character sheet is empty! The LLM may not have produced structured character data.");
+        console.warn("This could be due to:");
+        console.warn("- LLM response format not matching expected structure");
+        console.warn("- Missing 'Character Sheet' section in responses");
+        console.warn("- Response parsing issues");
+      }
       
-      console.log("Character generation completed successfully");
+      // Step 3: Validate the final character sheet with retry logic
+      console.log("Starting validation with retry logic");
+      const validation = await this.validateCharacterSheetWithRetry();
+      
+      // Handle case where retryCount might be undefined (e.g., empty character sheet)
+      const validationAttempts = (validation.retryCount !== undefined && !isNaN(validation.retryCount)) 
+        ? validation.retryCount + 1 
+        : 1;
+      console.log(`Character generation completed with ${validationAttempts} validation attempt(s)`);
       
       return {
         success: true,
