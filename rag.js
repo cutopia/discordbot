@@ -490,7 +490,7 @@ export async function getOrCreateVectorStore(pdfPath) {
 }
 
 /**
- * Query the vector store for relevant context
+ * Query the vector store for relevant context with improved character creation queries
  */
 export async function queryVectorStore(sourceName, query, k = 3) {
   const vectorStore = vectorStores.get(sourceName);
@@ -512,6 +512,49 @@ export async function queryVectorStore(sourceName, query, k = 3) {
     });
   } else {
     console.log('[RAG] No documents retrieved from vector store');
+  }
+  
+  // For character creation queries, we want to ensure we get comprehensive information
+  // about choices, options, and methods. If the initial retrieval doesn't give us
+  // enough detail, we can try additional targeted queries.
+  if (query.toLowerCase().includes('character')) {
+    console.log('[RAG] Character creation query - trying additional targeted queries');
+    
+    const additionalQueries = [
+      'What choices need to be made during character creation?',
+      'What options are available for each character creation step?',
+      'How do players make decisions during character creation?'
+    ];
+    
+    // Increase k for character creation to get more comprehensive information
+    const expandedK = Math.max(k * 2, 10); // Get at least 10 documents for character creation
+    
+    for (const addQuery of additionalQueries) {
+      if (docs.length >= expandedK) break;
+      
+      try {
+        const moreDocs = await vectorStore.similaritySearch(addQuery, expandedK - docs.length);
+        
+        // Add only unique documents
+        for (const doc of moreDocs) {
+          if (docs.length >= expandedK) break;
+          
+          const isDuplicate = docs.some(d => 
+            d.pageContent === doc.pageContent || 
+            (d.content && d.content === doc.pageContent)
+          );
+          
+          if (!isDuplicate) {
+            docs.push(doc);
+          }
+        }
+      } catch (error) {
+        console.log(`[RAG] Error with additional query "${addQuery}":`, error.message);
+      }
+    }
+    
+    // Log the expanded results
+    console.log(`[RAG] Character creation query expanded to ${docs.length} documents`);
   }
   
   return docs.map(doc => ({

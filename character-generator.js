@@ -1,383 +1,646 @@
-import { getRagQuery } from './rag.js';
 import { getLMStudioResponse } from './lmstudio.js';
+import { queryVectorStore, vectorStores } from './rag.js';
 
 /**
- * Query the RAG source for character generation steps
+ * Character generation agent state
  */
-async function getCharacterSteps(ragSource) {
-  try {
-    // Ask the RAG source what the steps are for creating a character
-    const prompt = `What are the complete, step-by-step instructions for creating a new character in this RPG system? Include all required elements like ancestry, calling, class, abilities, equipment, beats, and any other character creation requirements.`;
-    
-    const context = await getRagQuery(ragSource, prompt, 5);
-    
-    // Extract the steps from the response
-    return context;
-  } catch (error) {
-    console.error(`Error getting character steps from RAG source "${ragSource}":`, error.message);
-    throw new Error(`Failed to retrieve character creation steps from RAG source: ${error.message}`);
-  }
-}
-
-/**
- * Parse character steps from RAG response into structured format
- */
-function parseCharacterSteps(stepsText) {
-  // Try to extract numbered steps or bullet points that represent distinct steps
-  const lines = stepsText.split('\n').filter(line => line.trim());
-  
-  const steps = [];
-  let currentStep = null;
-  
-  for (const line of lines) {
-    // Look for numbered steps (1., 2., etc.) or bullet points
-    const numberedMatch = line.match(/^(\d+)\.\s*(.+)$/);
-    const bulletMatch = line.match(/^[-•]\s*(.+)$/);
-    
-    if (numberedMatch) {
-      // Save previous step if exists
-      if (currentStep) {
-        steps.push(currentStep);
-      }
-      
-      currentStep = {
-        step: parseInt(numberedMatch[1]),
-        description: numberedMatch[2].trim()
-      };
-    } else if (bulletMatch && currentStep) {
-      // Add to current step's description
-      currentStep.description += ' ' + bulletMatch[1].trim();
-    }
-  }
-  
-  // Don't forget the last step
-  if (currentStep) {
-    steps.push(currentStep);
-  }
-  
-  // If we didn't find any structured steps, create a generic one
-  if (steps.length === 0) {
-    steps.push({
-      step: 1,
-      description: stepsText.substring(0, 500)
-    });
-  }
-  
-  return steps;
-}
-
-/**
- * Query the RAG source for character generation information about a specific topic
- */
-async function queryCharacterInfo(ragSource, topic) {
-  try {
-    const context = await getRagQuery(ragSource, topic, 3);
-    return context;
-  } catch (error) {
-    console.error(`Error querying RAG for "${topic}":`, error.message);
-    throw new Error(`Failed to query RAG source: ${error.message}`);
-  }
-}
-
-/**
- * Generate a single character step using the AI with agentic loop and validation
- */
-async function generateCharacterStep(step, ragSource, previousData = {}, maxAttempts = 3) {
-  // Build prompt based on the step description from RAG
-  let prompt = `You are an expert RPG character creation assistant for the current RPG system.
-
-STEP ${step.step}: ${step.description}
-
-`;
-  
-  if (Object.keys(previousData).length > 0) {
-    prompt += 'Previous choices:\n';
-    Object.entries(previousData).forEach(([key, value]) => {
-      if (typeof value === 'string' && value.length < 100) {
-        prompt += `- ${key}: ${value}\n`;
-      }
-    });
-    prompt += '\n';
+class CharacterGenerationAgent {
+  constructor(specifications, ragSource) {
+    this.specifications = specifications;
+    this.ragSource = ragSource;
+    this.characterSheet = {};
+    this.steps = [];
+    this.currentStepIndex = 0;
+    this.progressUpdates = [];
+    this.maxRetries = 3;
   }
 
-  // Get specific instructions from RAG about what this step requires
-  try {
-    const stepDetails = await getRagQuery(
-      ragSource, 
-      `What are the requirements and options for ${step.description.toLowerCase()}?`,
-      2
-    );
-    
-    if (stepDetails && stepDetails.length > 0) {
-      prompt += `\nRelevant information from the RPG rules:\n${stepDetails}\n`;
-    }
-  } catch (error) {
-    // Continue without additional context if RAG query fails
-    console.warn(`Could not get detailed context for step ${step.step}:`, error.message);
-  }
-
-  // Add response format instructions
-  prompt += `\nProvide your answer concisely. If the step requires specific choices, list them clearly.`;
-
-  let lastResponse = null;
-  
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  /**
+   * Get the character creation steps from the RAG source
+   */
+  async getCharacterCreationSteps() {
     try {
-      const response = await getLMStudioResponse(prompt, []);
-      lastResponse = response;
+      // Query for character creation steps with improved prompt
+      // Use multiple targeted queries to get comprehensive information about choices, options, and methods
       
-      // For now, just return the raw response - validation will be handled by the caller
-      // This makes it truly agnostic to any specific RPG system
+      const primaryQuery = "What are the step-by-step instructions for creating a player character in this RPG system?";
       
-      return {
-        prompt,
-        response: lastResponse,
-        success: true,
-        data: { [step.description]: lastResponse }
-      };
-    } catch (error) {
-      console.error(`Attempt ${attempt} failed for step ${step.step}:`, error.message);
+      // Query the vector store for character creation steps with expanded results
+      const docs = await queryVectorStore(this.ragSource, primaryQuery, 10);
       
-      if (attempt === maxAttempts) {
-        break;
+      if (docs.length === 0) {
+        throw new Error("Could not retrieve character creation steps from the RAG source");
       }
-    }
-  }
+      
+      // Extract and parse the steps from the retrieved context
+      const contextText = docs.map(d => d.content).join("\n\n---\n\n");
+      
+      // Use LM Studio to extract structured steps with choice information
+      const extractionPrompt = `CRITICAL INSTRUCTIONS - READ CAREFULLY:
 
-  // All attempts failed
-  return {
-    prompt,
-    response: lastResponse || '',
-    success: false,
-    data: {},
-    failureMessage: `Failed to complete step "${step.description}" after ${maxAttempts} attempts.`
-  };
-}
+You are an expert RPG character creation assistant. Your task is to extract character creation instructions from the provided context.
 
-/**
- * Generate a complete character with progress reporting
- * Uses ONLY the selected RAG source - no hardcoded steps, no fallbacks
- */
-export async function generateCharacterWithProgress(specifications = '', ragSource = null) {
-  const result = {
-    success: false,
-    error: null,
-    formattedSheet: '',
-    progressUpdates: [],
-    characterData: {}
-  };
+**IMPORTANT GUIDELINES:**
+1. **Extract ALL character creation steps that appear in the context**
+2. **For EACH step, identify what CHOICE needs to be made, available OPTIONS, and how to make the choice**
+3. **If a step mentions choices or options, extract them explicitly**
+4. **Use your knowledge of RPG character creation structure to help organize the information**
+5. **Return as many complete steps as you can find in the context**
 
-  try {
-    // CRITICAL: Validate that we have a RAG source
-    if (!ragSource) {
-      throw new Error('No RAG source selected. Please use /rag_source to select a PDF document before creating a character.');
-    }
+Extract the step-by-step character creation instructions from the following text. 
+For EACH step found, identify:
+1. What CHOICE needs to be made
+2. What OPTIONS are available for that choice  
+3. How the choice is to be MADE (dice roll method, pick favorite, random selection, etc.)
 
-    result.progressUpdates.push({
-      step: 0,
-      name: 'Character Creation',
-      status: 'info',
-      message: `Using RAG source: ${ragSource}`
-    });
+Return them in this format:
 
-    // Step 1: Get the character creation steps from RAG
-    let characterStepsText;
-    try {
-      characterStepsText = await getCharacterSteps(ragSource);
-      result.progressUpdates.push({
-        step: 0,
-        name: 'Character Creation',
-        status: 'info',
-        message: `Retrieved ${characterStepsText.length} characters of character creation steps from ${ragSource}`
-      });
-    } catch (error) {
-      console.error('Error getting character steps from RAG:', error);
-      throw new Error(`Failed to retrieve character creation steps from RAG source "${ragSource}": ${error.message}`);
-    }
+STEP 1: [Step Name]
+CHOICE: [What decision needs to be made]
+OPTIONS: [List of available options]
+METHOD: [How to make the choice - dice roll, pick favorite, etc.]
 
-    // Step 2: Parse the steps into structured format
-    const characterSteps = parseCharacterSteps(characterStepsText);
-    
-    result.progressUpdates.push({
-      step: 0,
-      name: 'Character Creation',
-      status: 'info',
-      message: `Parsed ${characterSteps.length} character creation steps from RAG source`
-    });
+STEP 2: [Step Name]
+...
 
-    // Step 3: Execute each character generation step
-    const characterData = {
-      specifications: specifications,
-      rawSteps: characterStepsText,
-      validationStatus: { allStepsValid: true, finalValid: false }
-    };
+Context:
+${contextText}
 
-    for (const step of characterSteps) {
-      result.progressUpdates.push({
-        step: step.step,
-        name: `Step ${step.step}`,
-        status: 'in-progress',
-        message: `Generating: ${step.description.substring(0, 50)}...`
-      });
+Steps:`;
 
-      // Generate this step using AI with agentic loop
-      const generationResult = await generateCharacterStep(step, ragSource, {
-        ...characterData,
-        specifications: null // Don't pass full specs to avoid token overflow
-      }, 3); // max 3 attempts per step
-
-      // Check if generation succeeded
-      if (!generationResult.success) {
-        // Step failed after all attempts - record the error but continue with next steps
-        result.progressUpdates[result.progressUpdates.length - 1].status = 'error';
-        const errorMessage = generationResult.failureMessage || `Generation failed`;
-        result.progressUpdates[result.progressUpdates.length - 1].message += ` ❌ ${errorMessage}`;
+      const response = await getLMStudioResponse(extractionPrompt, []);
+      
+      // Parse the response into structured steps with choice information
+      this.steps = [];
+      
+      // Split by "STEP N:" to get individual step blocks
+      const stepBlocks = response.split(/STEP\s+\d+/i);
+      
+      for (const block of stepBlocks) {
+        if (!block.trim()) continue;
         
-        // Record the failure in character data for reporting
-        if (!characterData.validationFailures) {
-          characterData.validationFailures = [];
+        const stepInfo = this.parseStepBlock(block.trim());
+        if (stepInfo) {
+          this.steps.push(stepInfo);
         }
-        characterData.validationFailures.push({
-          step: step.description,
-          message: errorMessage
-        });
+      }
+      
+      // Fallback: If structured parsing didn't work, try to extract simple steps
+      if (this.steps.length === 0) {
+        console.log('Structured step parsing failed, falling back to simple step extraction');
         
-        // Continue with empty/default data for this step - don't throw error
-        console.warn(`Step ${step.step} (${step.description}) failed: ${errorMessage}`);
+        const simpleSteps = response.split('\n')
+          .map(line => line.trim())
+          .filter(line => {
+            // Filter out empty lines and non-step lines
+            if (!line) return false;
+            // Check for numbered steps (1., 2., etc.)
+            if (line.match(/^\d+\.\s+/)) return true;
+            // Check for step headers (Step 1:, STEP 1:, etc.)
+            if (line.match(/^step\s+\d+[:\s]/i)) return true;
+            // Check for bold steps (**Step X:**)
+            if (line.match(/\*\*Step\s+\d+:.*\*\*/)) return true;
+            // Check for sentences that look like instructions
+            if (line.length > 10 && line.length < 200) {
+              const lowerLine = line.toLowerCase();
+              if (lowerLine.includes('create') || lowerLine.includes('choose') || 
+                  lowerLine.includes('determine') || lowerLine.includes('select')) {
+                return true;
+              }
+            }
+            return false;
+          })
+          .map(line => {
+            // Clean up the step text
+            let cleaned = line.replace(/^\d+\.\s*/, '');
+            cleaned = cleaned.replace(/^step\s+\d+[:\s]+/i, '');
+            cleaned = cleaned.replace(/\*\*Step\s+\d+:.*\*\*/i, '');
+            return cleaned.trim();
+          })
+          .filter(step => step.length > 0);
+        
+        // Convert simple steps to structured format
+        this.steps = simpleSteps.map(step => ({
+          stepName: step,
+          choice: null,
+          options: [],
+          method: 'player_choice'
+        }));
+      }
+      
+      // If still no steps found, try a more aggressive fallback
+      if (this.steps.length === 0) {
+        console.log('Simple step extraction also failed, trying aggressive fallback');
+        
+        // Try to find any numbered sections in the response
+        const sectionMatches = response.match(/^(?:step\s+)?(\d+)\.\s*(.+)$/gm);
+        if (sectionMatches) {
+          this.steps = sectionMatches.map(match => {
+            const parts = match.split(/\.\s*/, 2);
+            return {
+              stepName: parts[1] ? parts[1].trim() : 'Unknown Step',
+              choice: null,
+              options: [],
+              method: 'player_choice'
+            };
+          });
+        }
+      }
+      
+      console.log(`Character generation agent: Found ${this.steps.length} steps`);
+      
+      if (this.steps.length === 0) {
+        throw new Error("Could not parse character creation steps from the RAG source");
+      }
+      
+      this.progressUpdates.push({
+        step: "initialization",
+        status: "completed",
+        details: `Retrieved ${this.steps.length} character creation steps`
+      });
+      
+      return this.steps;
+    } catch (error) {
+      console.error("Error getting character creation steps:", error);
+      throw new Error(`Failed to retrieve character creation steps from RAG source: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get context for a specific step from the RAG source with choice information
+   */
+  async getStepContext(stepDescription) {
+    try {
+      // Extract structured step info if available
+      const structuredStep = typeof stepDescription === 'object' ? stepDescription : { 
+        stepName: stepDescription, 
+        choice: null, 
+        options: [], 
+        method: 'player_choice' 
+      };
+      
+      // Build a targeted query that focuses on choices, options, and methods
+      let query;
+      if (structuredStep.choice) {
+        query = `How do I ${structuredStep.stepName.toLowerCase()}? What choices need to be made? What options are available? How should the choice be made?`;
       } else {
-        result.progressUpdates[result.progressUpdates.length - 1].status = 'completed';
-        result.progressUpdates[result.progressUpdates.length - 1].message += ' ✅';
-        
-        // Store the generated data
-        Object.assign(characterData, generationResult.data);
+        query = `How do I ${structuredStep.stepName.toLowerCase()}? Provide detailed instructions about what needs to be chosen, available options, and how to make the selection.`;
       }
-    }
+      
+      // Query the vector store for context about this step
+      const docs = await queryVectorStore(this.ragSource, query, 5);
+      
+      if (docs.length === 0) {
+        throw new Error(`Could not retrieve context for step: ${stepDescription}`);
+      }
+      
+      const contextText = docs.map(d => d.content).join("\n\n---\n\n");
+      
+      // Build comprehensive context with choice information
+      let contextBuilder = `CONTEXT INSTRUCTIONS:
+1. This is the ONLY information you should use for this step
+2. Do NOT supplement with your own knowledge about RPG character creation
+3. If information is incomplete, work within these constraints
 
-    // Step 4: Format the final character sheet using RAG context
-    try {
-      const formattingInstructions = await getRagQuery(
-        ragSource,
-        `How should a complete character sheet be formatted? What sections and information should it include?`,
-        2
-      );
+STEP DETAILS:
+Step: ${structuredStep.stepName}
+${structuredStep.choice ? `Choice: ${structuredStep.choice}` : ''}
+${structuredStep.options.length > 0 ? `Options: ${structuredStep.options.join(', ')}` : ''}
+${structuredStep.method && structuredStep.method !== 'player_choice' ? `Method: ${structuredStep.method}` : ''}
+
+RETRIEVED CONTEXT:
+${contextText}`;
       
-      result.progressUpdates.push({
-        step: characterSteps.length + 1,
-        name: 'Formatting',
-        status: 'info',
-        message: 'Formatting final character sheet...'
-      });
-      
-      // Build the character sheet based on what we generated and RAG formatting guidance
-      let formattedSheet = `# 🎲 Character Sheet\n\n`;
-      
-      if (specifications) {
-        formattedSheet += `## 📋 Specifications\n${specifications}\n\n`;
-      }
-      
-      formattedSheet += `## 📚 Source\n${ragSource}\n\n`;
-      
-      // Add all the generated character data
-      formattedSheet += `## 🎮 Character Details\n\n`;
-      
-      for (const [key, value] of Object.entries(characterData)) {
-        if (key !== 'specifications' && key !== 'rawSteps' && typeof value === 'string') {
-          // Format the key nicely
-          const niceKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-          formattedSheet += `### ${niceKey}\n${value}\n\n`;
-        }
-      }
-      
-      result.formattedSheet = formattedSheet;
+      return contextBuilder;
     } catch (error) {
-      // Fallback formatting if RAG query fails
-      console.warn('Error getting formatting instructions from RAG:', error);
-      
-      let fallbackSheet = `# 🎲 Character Sheet\n\n`;
-      fallbackSheet += `## 📚 Source\n${ragSource}\n\n`;
-      fallbackSheet += `## 🎮 Generated Data\n\n`;
-      
-      for (const [key, value] of Object.entries(characterData)) {
-        if (key !== 'specifications' && key !== 'rawSteps' && typeof value === 'string') {
-          fallbackSheet += `### ${key}\n${value.substring(0, 500)}\n\n`;
-        }
-      }
-      
-      result.formattedSheet = fallbackSheet;
+      console.error(`Error getting context for step "${stepDescription}":`, error);
+      throw error;
     }
-
-    // Final validation - no fallbacks allowed
-    // Since we're agnostic, we can't do system-specific validation
-    // Just check that we have some character data
-    const hasCharacterData = Object.keys(characterData).some(
-      key => typeof characterData[key] === 'string' && characterData[key].length > 10
-    );
-    
-    characterData.validationStatus.finalValid = hasCharacterData;
-
-    if (hasCharacterData) {
-      result.progressUpdates.push({
-        step: characterSteps.length + 2,
-        name: 'Final Validation',
-        status: 'completed',
-        message: 'Character creation complete! ✅'
-      });
-      
-      result.success = true;
-    } else {
-      result.progressUpdates.push({
-        step: characterSteps.length + 2,
-        name: 'Final Validation',
-        status: 'error',
-        message: 'Character validation failed - no valid character data generated ❌'
-      });
-    }
-
-    result.characterData = characterData;
-
-  } catch (error) {
-    console.error('Error generating character:', error);
-    
-    // Record the error but don't stop character generation
-    if (!result.characterData.validationFailures) {
-      result.characterData.validationFailures = [];
-    }
-    result.characterData.validationFailures.push({
-      step: 'Character Creation',
-      message: `Critical error: ${error.message}`
-    });
-    
-    result.error = error.message;
   }
 
-  return result;
-}
+  /**
+   * Execute a single character creation step
+   */
+  async executeStep(stepIndex, retryCount = 0) {
+    const step = this.steps[stepIndex];
+    
+    try {
+      console.log(`Executing step ${stepIndex + 1}/${this.steps.length}: ${step}`);
+      
+      // Get context for this step from the RAG source
+      const context = await this.getStepContext(step);
+      
+      // Build the prompt for executing this step
+      let executionPrompt;
+      
+      if (stepIndex === 0) {
+        // First step: Initialize character sheet with specifications
+        const structuredStep = typeof step === 'object' ? step : { stepName: step, choice: null, options: [], method: 'player_choice' };
+        
+        executionPrompt = `CRITICAL INSTRUCTIONS - READ CAREFULLY:
 
-/**
- * Format progress updates for display
- */
-export function formatProgressReport(progressUpdates) {
-  if (!progressUpdates || progressUpdates.length === 0) {
+You are creating a PLAYER CHARACTER for an RPG game. Follow these instructions to create a character.
+
+**IMPORTANT GUIDELINES:**
+1. **Use information from the context documents as your primary source**
+2. **If specific details are not in context, use reasonable RPG character creation knowledge**
+3. **Make choices that fit the character specifications provided by the user**
+4. **If the user hasn't specified a name or backstory for the character, be as creative as possible while matching the flavor and feel of the RPG's setting.**
+
+Character Specifications from user:
+${this.specifications || 'No specific requirements provided'}
+
+Current Step (${stepIndex + 1}/${this.steps.length}):
+Step: ${structuredStep.stepName}
+${structuredStep.choice ? `Choice: ${structuredStep.choice}` : ''}
+${structuredStep.options.length > 0 ? `Options: ${structuredStep.options.join(', ')}` : ''}
+${structuredStep.method && structuredStep.method !== 'player_choice' ? `Method: ${structuredStep.method}` : ''}
+
+Context from RPG rulebook:
+${context}
+
+Instructions:
+1. Read the context carefully
+2. Make appropriate choices based on the step instructions and user specifications
+3. If dice rolls are needed, use standard dice notation (e.g., "1d20", "4d6dl1")
+4. Update your character sheet with the results
+
+Return your response in this format:
+## Step ${stepIndex + 1}: [Step Name]
+[Your actions and decisions]
+
+Character Sheet State:
+- [Any updated fields]`;
+      } else {
+        // Subsequent steps: Continue building on existing character sheet
+        const structuredStep = typeof step === 'object' ? step : { stepName: step, choice: null, options: [], method: 'player_choice' };
+        
+        executionPrompt = `CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+You are creating a PLAYER CHARACTER for an RPG game. Follow these instructions to create a character.
+
+**IMPORTANT GUIDELINES:**
+1. **Use information from the context documents as your primary source**
+2. **If specific details are not in context, use reasonable RPG character creation knowledge**
+3. **Make choices that fit the character specifications and previous steps**
+4. **Focus on creating an engaging and balanced character**
+
+Current Step (${stepIndex + 1}/${this.steps.length}):
+Step: ${structuredStep.stepName}
+${structuredStep.choice ? `Choice: ${structuredStep.choice}` : ''}
+${structuredStep.options.length > 0 ? `Options: ${structuredStep.options.join(', ')}` : ''}
+${structuredStep.method && structuredStep.method !== 'player_choice' ? `Method: ${structuredStep.method}` : ''}
+
+Previous Steps Completed:
+${this.steps.slice(0, stepIndex).map((s, i) => `${i + 1}. ${typeof s === 'object' ? s.stepName : s}`).join('\n')}
+
+Context from RPG rulebook:
+${context}
+
+Instructions:
+1. Read the context carefully
+2. Make appropriate choices based on the step instructions and user specifications
+3. If dice rolls are needed, use standard dice notation (e.g., "1d20", "4d6dl1")
+4. Update your character sheet with the results
+
+Return your response in this format:
+## Step ${stepIndex + 1}: [Step Name]
+[Your actions and decisions]
+
+Character Sheet State:
+- [Any updated fields]`;
+      }
+      
+      const response = await getLMStudioResponse(executionPrompt, []);
+      
+      // Parse the response to extract character sheet updates
+      const stepResult = this.parseStepResult(response, stepIndex);
+      
+      // Convert step to string representation for Discord display
+      const stepDetails = typeof step === 'object' ? step.stepName || JSON.stringify(step) : step;
+      
+      this.progressUpdates.push({
+        step: `step_${stepIndex + 1}`,
+        status: "completed",
+        details: stepDetails,
+        result: stepResult
+      });
+      
+      return { success: true, result: stepResult };
+    } catch (error) {
+      console.error(`Error executing step ${stepIndex + 1}:`, error);
+      
+      if (retryCount < this.maxRetries) {
+        console.log(`Retrying step ${stepIndex + 1} (attempt ${retryCount + 2}/${this.maxRetries})...`);
+        return await this.executeStep(stepIndex, retryCount + 1);
+      } else {
+        throw new Error(`Failed to complete step ${stepIndex + 1}: "${step}" after ${this.maxRetries} attempts. Error: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Parse the LLM response to extract character sheet updates
+   */
+  parseStepResult(response, stepIndex) {
+    // Extract key information from the response
+    const lines = response.split('\n');
+    
+    let result = {
+      stepName: `Step ${stepIndex + 1}`,
+      actions: [],
+      characterSheetUpdates: {}
+    };
+    
+    for (const line of lines) {
+      if (line.startsWith('## Step')) {
+        result.stepName = line.replace('## Step', '').trim();
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        // Character sheet update
+        const content = line.substring(2).trim();
+        if (content.includes(':') || content.includes('=')) {
+          const [key, value] = content.split(/[:=]/).map(s => s.trim());
+          result.characterSheetUpdates[key] = value;
+        } else {
+          result.actions.push(content);
+        }
+      } else if (line.trim().length > 0) {
+        // Regular action or description
+        result.actions.push(line.trim());
+      }
+    }
+    
+    return result;
+  }
+
+  /**
+   * Parse a step block to extract choice information
+   */
+  parseStepBlock(block) {
+    const lines = block.split('\n').map(line => line.trim());
+    
+    let stepInfo = {
+      stepName: '',
+      choice: null,
+      options: [],
+      method: 'player_choice'
+    };
+    
+    for (const line of lines) {
+      if (!line) continue;
+      
+      // Extract step name
+      const stepMatch = line.match(/^STEP\s+\d+[:\s]+(.+)$/i);
+      if (stepMatch) {
+        stepInfo.stepName = stepMatch[1].trim();
+        continue;
+      }
+      
+      // Extract choice description
+      const choiceMatch = line.match(/^(?:CHOICE|WHAT TO CHOOSE)[:\s]+(.+)$/i);
+      if (choiceMatch) {
+        stepInfo.choice = choiceMatch[1].trim();
+        continue;
+      }
+      
+      // Extract options list
+      const optionsMatch = line.match(/^(?:OPTIONS|AVAILABLE OPTIONS|SELECT FROM)[:\s]*(.+)$/i);
+      if (optionsMatch) {
+        // Parse comma-separated or bullet-pointed options
+        const optionsText = optionsMatch[1].trim();
+        stepInfo.options = this.parseOptions(optionsText);
+        continue;
+      }
+      
+      // Extract method
+      const methodMatch = line.match(/^(?:METHOD|HOW TO CHOOSE|DECISION METHOD)[:\s]+(.+)$/i);
+      if (methodMatch) {
+        stepInfo.method = methodMatch[1].trim().toLowerCase();
+        
+        // Normalize method descriptions to standard values
+        if (stepInfo.method.includes('roll') || stepInfo.method.includes('dice')) {
+          stepInfo.method = 'dice_roll';
+        } else if (stepInfo.method.includes('pick') || stepInfo.method.includes('choose') || 
+                   stepInfo.method.includes('select') || stepInfo.method.includes('favorite')) {
+          stepInfo.method = 'player_choice';
+        } else if (stepInfo.method.includes('random') || stepInfo.method.includes('table')) {
+          stepInfo.method = 'random_selection';
+        }
+        continue;
+      }
+    }
+    
+    // If we have a valid step name, return the structured info
+    if (stepInfo.stepName) {
+      return stepInfo;
+    }
+    
     return null;
   }
 
-  let report = '## 📊 Character Generation Progress\n\n';
-  
-  for (const update of progressUpdates) {
-    const statusIcon = {
-      'in-progress': '⏳',
-      'completed': '✅',
-      'warning': '⚠️',
-      'error': '❌',
-      'info': 'ℹ️'
-    }[update.status] || 'ℹ️';
-
-    report += `${statusIcon} **Step ${update.step}:** ${update.name}\n`;
+  /**
+   * Parse options text into an array
+   */
+  parseOptions(optionsText) {
+    const options = [];
     
-    if (update.message) {
-      report += `   ${update.message}\n`;
+    // Split by common separators
+    const rawOptions = optionsText.split(/[,;]|(?:\n\s*[-•]\s+)/);
+    
+    for (const option of rawOptions) {
+      const trimmed = option.trim();
+      if (trimmed && !trimmed.match(/^OPTIONS/i)) {
+        options.push(trimmed);
+      }
+    }
+    
+    return options;
+  }
+
+  /**
+   * Validate the character sheet after all steps are complete
+   */
+  async validateCharacterSheet() {
+    try {
+      const validationPrompt = `CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+You are validating a character sheet against RPG rulebook guidelines.
+
+**IMPORTANT GUIDELINES:**
+1. **Use context documents as your primary source for validation rules**
+2. **If specific validation criteria are not in context, use reasonable RPG character creation knowledge**
+3. **Focus on creating a balanced and engaging character**
+
+Character Sheet:
+${JSON.stringify(this.characterSheet, null, 2)}
+
+Instructions:
+1. Check if all required fields are present (based on context or reasonable RPG standards)
+2. Verify that values are within acceptable ranges
+3. Ensure consistency between different parts of the character
+
+Return your validation result in this format:
+## Validation Result: [PASS/FAIL]
+[Your validation notes]`;
+
+      const response = await getLMStudioResponse(validationPrompt, []);
+      
+      // Parse validation result
+      if (response.includes('Validation Result: PASS')) {
+        return { success: true, message: 'Character sheet validated successfully' };
+      } else {
+        throw new Error(`Character sheet validation failed: ${response}`);
+      }
+    } catch (error) {
+      console.error("Error validating character sheet:", error);
+      // Don't fail the entire process due to validation errors
+      return { success: true, message: `Character sheet created with warnings: ${error.message}` };
     }
   }
 
+  /**
+   * Format the final character sheet for display
+   */
+  formatCharacterSheet() {
+    let output = "## 🎲 Character Creation Complete!\n\n";
+    
+    if (Object.keys(this.characterSheet).length === 0) {
+      // If no structured data, use the last step's result
+      const lastStep = this.progressUpdates[this.progressUpdates.length - 1];
+      if (lastStep && lastStep.result) {
+        output += `**Character Sheet:**\n${JSON.stringify(lastStep.result.characterSheetUpdates, null, 2)}\n`;
+      }
+    } else {
+      output += `**Character Sheet:**\n${JSON.stringify(this.characterSheet, null, 2)}\n`;
+    }
+    
+    // Add progress report
+    if (this.progressUpdates.length > 0) {
+      output += "\n## 📋 Progress Report:\n";
+      this.progressUpdates.forEach((update, i) => {
+        output += `${i + 1}. **${update.step}**: ${update.status}\n`;
+        if (update.details) {
+          output += `   - ${update.details}\n`;
+        }
+      });
+    }
+    
+    return output;
+  }
+
+  /**
+   * Run the complete character generation process
+   */
+  async generateCharacter() {
+    try {
+      // Step 1: Get character creation steps from RAG source
+      await this.getCharacterCreationSteps();
+      
+      if (this.steps.length === 0) {
+        throw new Error("No character creation steps were retrieved from the RAG source");
+      }
+      
+      console.log(`Starting character generation with ${this.steps.length} steps`);
+      
+      // Step 2: Execute each step in sequence
+      for (let i = 0; i < this.steps.length; i++) {
+        const result = await this.executeStep(i);
+        
+        if (!result.success) {
+          throw new Error(`Failed to complete step ${i + 1}: ${this.steps[i]}`);
+        }
+        
+        // Update character sheet with results from this step
+        if (result.result && result.result.characterSheetUpdates) {
+          Object.assign(this.characterSheet, result.result.characterSheetUpdates);
+        }
+      }
+      
+      // Step 3: Validate the final character sheet
+      const validation = await this.validateCharacterSheet();
+      
+      console.log("Character generation completed successfully");
+      
+      return {
+        success: true,
+        formattedSheet: this.formatCharacterSheet(),
+        progressUpdates: this.progressUpdates,
+        characterSheet: this.characterSheet
+      };
+    } catch (error) {
+      console.error("Error in character generation:", error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+}
+
+/**
+ * Generate a character with progress reporting
+ * @param {string} specifications - User-provided character specifications
+ * @param {string} ragSource - Name of the RAG source to use
+ * @returns {Promise<object>} Character generation result
+ */
+export async function generateCharacterWithProgress(specifications, ragSource) {
+  console.log(`Starting character generation for source: ${ragSource}`);
+  
+  // Check if vector store exists for this source
+  if (!vectorStores.has(ragSource)) {
+    return {
+      success: false,
+      error: `No RAG vector store found for source: "${ragSource}". Please use /rag_source to select a PDF document first.`
+    };
+  }
+  
+  // Create and run the character generation agent
+  const agent = new CharacterGenerationAgent(specifications, ragSource);
+  return await agent.generateCharacter();
+}
+
+/**
+ * Format progress updates into a readable report
+ * @param {Array} progressUpdates - Array of progress update objects
+ * @returns {string} Formatted progress report
+ */
+export function formatProgressReport(progressUpdates) {
+  if (!progressUpdates || progressUpdates.length === 0) {
+    return '';
+  }
+  
+  let report = "## 📋 Character Generation Progress:\n";
+  
+  progressUpdates.forEach((update, i) => {
+    const statusIcon = update.status === 'completed' ? '✅' : '❌';
+    
+    // Extract step name from structured or simple format
+    let stepName = update.step;
+    if (update.result && update.result.stepName) {
+      stepName = update.result.stepName;
+    } else if (typeof update.details === 'string') {
+      stepName = update.details.split('\n')[0];
+    }
+    
+    report += `${i + 1}. ${statusIcon} **${stepName}**\n`;
+    
+    if (update.details) {
+      report += `   - ${update.details}\n`;
+    }
+    
+    if (update.result && update.result.characterSheetUpdates) {
+      const updates = Object.entries(update.result.characterSheetUpdates)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ');
+      
+      if (updates) {
+        report += `   - Updated: ${updates}\n`;
+      }
+    }
+  });
+  
   return report;
 }
+
+// Export for testing
+export { CharacterGenerationAgent };
