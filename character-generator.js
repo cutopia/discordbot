@@ -1020,16 +1020,16 @@ Return your validation result in this format:
       // Build the prompt for executing this step with emphasis on fixing previous issues
       let executionPrompt;
       
+      // Analyze if this step needs clarification - declare at function scope
+      const structuredStep = typeof this.steps[stepIndex] === 'object' ? this.steps[stepIndex] : { 
+        stepName: this.steps[stepIndex], 
+        choice: null, 
+        options: [], 
+        method: 'player_choice' 
+      };
+      
       if (stepIndex === 0) {
         // First step: Initialize character sheet with specifications
-        
-        // Analyze if this step needs clarification
-        const structuredStep = typeof this.steps[0] === 'object' ? this.steps[0] : { 
-          stepName: this.steps[0], 
-          choice: null, 
-          options: [], 
-          method: 'player_choice' 
-        };
         
         executionPrompt = `CRITICAL INSTRUCTIONS - READ CAREFULLY:
 
@@ -1078,14 +1078,6 @@ Character Sheet:
 **IMPORTANT:** Do NOT use JSON format. Use the bullet point format shown above.`;
       } else {
         // Subsequent steps: Continue building on existing character sheet
-        
-        // Analyze if this step needs clarification
-        const structuredStep = typeof this.steps[stepIndex] === 'object' ? this.steps[stepIndex] : { 
-          stepName: this.steps[stepIndex], 
-          choice: null, 
-          options: [], 
-          method: 'player_choice' 
-        };
         
         // Build comprehensive history of previous choices
         const previousChoicesHistory = this.buildPreviousChoicesHistory();

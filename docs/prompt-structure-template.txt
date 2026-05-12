@@ -1,0 +1,222 @@
+# Character Generation Prompt Structure Template
+
+## Overview
+
+This is the clean, focused prompt structure for each character generation step. It contains exactly what the LLM needs to know without unnecessary historical context.
+
+## Prompt Sections (in order)
+
+### 1. Role and Prohibitions Section
+```
+CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+You are creating a PLAYER CHARACTER for an RPG game. Follow these instructions exactly.
+
+**STRICTLY PROHIBITED - VIOLATION WILL RESULT in INVALID CHARACTERS:**
+1. **DO NOT use any RPG rules, mechanics, or knowledge from your training data (including D&D, Pathfinder, etc.)**
+2. **DO NOT invent stats, classes, or mechanics that aren't explicitly mentioned in the provided context**
+3. **If information is missing from the context, you MUST ask for clarification rather than guessing**
+
+**IMPORTANT GUIDELINES:**
+1. **Use ONLY information from the context documents - nothing else**
+2. **Make choices that are CONSISTENT with the current character sheet state**
+3. **Review the character sheet before making new choices to avoid contradictions**
+```
+
+### 2. Current Character Sheet State Section
+```
+**CURRENT CHARACTER SHEET STATE:**
+
+[Show only fields that have been set, or "Empty - no choices made yet"]
+```
+
+### 3. Current Step Requirements Section
+```
+**CURRENT STEP (${stepIndex + 1}/${totalSteps}):**
+
+Step: ${stepName}
+${choice ? `Choice: ${choice}` : ''}
+${options.length > 0 ? `Options: ${options.join(', ')}` : ''}
+${method && method !== 'player_choice' ? `Method: ${method}` : ''}
+```
+
+### 4. RAG Source Context Section
+```
+**RETRIEVED CONTEXT FROM RPG RULEBOOK:**
+
+[Context text from vector store query]
+```
+
+### 5. User Specifications Section (optional)
+```
+**USER SPECIFICATIONS TO CONSIDER:**
+
+[user specifications text]
+
+IMPORTANT: Make your choices consistent with these user specifications.
+```
+
+### 6. Output Format Instructions Section
+```
+**OUTPUT FORMAT REQUIREMENTS:**
+
+1. Provide a brief narrative explanation of your choice (2-3 sentences)
+2. After the narrative, add a section titled "Character Sheet:"
+3. For EACH character sheet field you're updating, use this format:
+   - Field Name: Value
+4. Only include fields that are being updated or added
+
+**EXAMPLE OUTPUT:**
+
+## Step ${stepIndex + 1}: [Step Name]
+
+[Your narrative explanation here]
+
+Character Sheet:
+- Field1: value1
+- Field2: value2
+```
+
+## Complete Prompt Example (First Step)
+
+```
+CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+You are creating a PLAYER CHARACTER for an RPG game. Follow these instructions exactly.
+
+**STRICTLY PROHIBITED - VIOLATION WILL RESULT in INVALID CHARACTERS:**
+1. **DO NOT use any RPG rules, mechanics, or knowledge from your training data (including D&D, Pathfinder, etc.)**
+2. **DO NOT invent stats, classes, or mechanics that aren't explicitly mentioned in the provided context**
+3. **If information is missing from the context, you MUST ask for clarification rather than guessing**
+
+**IMPORTANT GUIDELINES:**
+1. **Use ONLY information from the context documents - nothing else**
+2. **Make choices that are CONSISTENT with the current character sheet state**
+3. **Review the character sheet before making new choices to avoid contradictions**
+
+**CURRENT CHARACTER SHEET STATE:**
+
+Empty - no choices made yet
+
+**CURRENT STEP (1/5):**
+
+Step: Determine Character Role/Archetype
+Choice: Select a character role or archetype that fits the RPG system
+Options: [List of available roles from context]
+Method: player_choice
+
+**RETRIEVED CONTEXT FROM RPG RULEBOOK:**
+
+[Context text from vector store]
+
+**USER SPECIFICATIONS TO CONSIDER:**
+
+Create a drow character with stealth focus
+
+IMPORTANT: Make your choices consistent with these user specifications.
+
+**OUTPUT FORMAT REQUIREMENTS:**
+
+1. Provide a brief narrative explanation of your choice (2-3 sentences)
+2. After the narrative, add a section titled "Character Sheet:"
+3. For EACH character sheet field you're updating, use this format:
+   - Field Name: Value
+4. Only include fields that are being updated or added
+
+**EXAMPLE OUTPUT:**
+
+## Step 1: Determine Character Role/Archetype
+
+I have analyzed the military setting and decided to create a disciplined soldier character with strong leadership qualities.
+
+Character Sheet:
+- Name: Captain John Smith
+- Class: Soldier
+- Background: Military Veteran  
+- Alignment: Lawful Good
+```
+
+## Complete Prompt Example (Subsequent Steps)
+
+```
+CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+You are creating a PLAYER CHARACTER for an RPG game. Follow these instructions exactly.
+
+**STRICTLY PROHIBITED - VIOLATION WILL RESULT in INVALID CHARACTERS:**
+1. **DO NOT use any RPG rules, mechanics, or knowledge from your training data (including D&D, Pathfinder, etc.)**
+2. **DO NOT invent stats, classes, or mechanics that aren't explicitly mentioned in the provided context**
+3. **If information is missing from the context, you MUST ask for clarification rather than guessing**
+
+**IMPORTANT GUIDELINES:**
+1. **Use ONLY information from the context documents - nothing else**
+2. **Make choices that are CONSISTENT with the current character sheet state**
+3. **Review the character sheet before making new choices to avoid contradictions**
+
+**CURRENT CHARACTER SHEET STATE:**
+
+- Name: Captain John Smith
+- Class: Soldier
+- Background: Military Veteran
+
+**CURRENT STEP (2/5):**
+
+Step: Assign Attributes
+Choice: Roll dice and assign attribute scores
+Options: [Attribute generation method from context]
+Method: dice_roll
+
+**RETRIEVED CONTEXT FROM RPG RULEBOOK:**
+
+[Context text for attribute generation]
+
+**USER SPECIFICATIONS TO CONSIDER:**
+
+Create a drow character with stealth focus
+
+IMPORTANT: Make your choices consistent with these user specifications.
+
+**OUTPUT FORMAT REQUIREMENTS:**
+
+1. Provide a brief narrative explanation of your choice (2-3 sentences)
+2. After the narrative, add a section titled "Character Sheet:"
+3. For EACH character sheet field you're updating, use this format:
+   - Field Name: Value
+4. Only include fields that are being updated or added
+
+**EXAMPLE OUTPUT:**
+
+## Step 2: Assign Attributes
+
+I have rolled the dice and assigned attributes based on the results.
+
+Character Sheet:
+- Strength: 16
+- Dexterity: 14
+- Constitution: 12
+- Intelligence: 10
+- Wisdom: 8
+- Charisma: 13
+```
+
+## Key Improvements Over Previous Structure
+
+### ✅ Cleaner and More Focused
+- Each section has a single, clear purpose
+- No redundant information or overlapping sections
+- Consistent formatting across all steps
+
+### ✅ Better for LLM Processing
+- Reduced cognitive load from unnecessary historical context
+- Clear separation between current state and new choices
+- Explicit consistency check instructions
+
+### ✅ Easier to Maintain
+- Each section can be modified independently
+- Clear separation of concerns
+- Easier to test individual components
+
+### ✅ Prevents Common Issues
+- Strict prohibitions against training data usage
+- Current character sheet always visible for consistency checking
+- No confusion about what information is relevant
