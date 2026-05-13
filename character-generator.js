@@ -324,7 +324,7 @@ You are creating a PLAYER CHARACTER for an RPG game. Follow these instructions t
 **STRICTLY PROHIBITED - VIOLATION WILL RESULT in INVALID CHARACTERS:**
 1. **DO NOT use any RPG rules, mechanics, or knowledge from your training data (including D&D, Pathfinder, etc.)**
 2. **DO NOT invent stats, classes, or mechanics that aren't explicitly mentioned in the provided context**
-3. **If information is missing from the context, you MUST ask for clarification rather than guessing**
+3. **If information is missing from the context, try to retrieve the additional context needed. Do NOT guess.**
 
 **IMPORTANT GUIDELINES:**
 1. **Use ONLY information from the context documents - nothing else**
@@ -406,11 +406,10 @@ I have analyzed the military setting and decided to create a disciplined soldier
 
 Character Sheet:
 - Name: Captain John Smith
-- Class: Soldier
-- Background: Military Veteran  
-- Alignment: Lawful Good
-- Strength: 16
-- Dexterity: 14
+- <Character Trait Name>: <Selection>
+- <Character Trait Name>: <Selection>
+- <Attribute Name>: <Dice Result>
+- <Attribute Name>: <Dice Result>
 
 **IMPORTANT:** Do NOT use JSON format. Use the bullet point format shown above.`;
       } else {
@@ -430,7 +429,7 @@ You are creating a PLAYER CHARACTER for an RPG game. Follow these instructions t
 **STRICTLY PROHIBITED - VIOLATION WILL RESULT in INVALID CHARACTERS:**
 1. **DO NOT use any RPG rules, mechanics, or knowledge from your training data (including D&D, Pathfinder, etc.)**
 2. **DO NOT invent stats, classes, or mechanics that aren't explicitly mentioned in the provided context**
-3. **If information is missing from the context, you MUST ask for clarification rather than guessing**
+3. **If information is missing from the context, use the tool to get clarification.*
 
 **IMPORTANT GUIDELINES:**
 1. **Use ONLY information from the context documents - nothing else**
@@ -517,12 +516,10 @@ EXAMPLE OUTPUT:
 I have rolled the dice and assigned attributes based on the results.
 
 Character Sheet:
-- Strength: 16
-- Dexterity: 14
-- Constitution: 12
-- Intelligence: 10
-- Wisdom: 8
-- Charisma: 13
+- <Attribute Name>: <Dice Result>
+- <Attribute Name>: <Dice Result>
+- <Attribute Name>: <Dice Result>
+(and so on for each attribute the RPG system has as applicable)
 
 **IMPORTANT:** Do NOT use JSON format. Use the bullet point format shown above.`;
       }
@@ -1069,11 +1066,10 @@ I have analyzed the military setting and decided to create a disciplined soldier
 
 Character Sheet:
 - Name: Captain John Smith
-- Class: Soldier
-- Background: Military Veteran  
-- Alignment: Lawful Good
-- Strength: 16
-- Dexterity: 14
+- <Character Trait Name>: <Selection>
+- <Character Trait Name>: <Selection>
+- <Attribute Name>: <Dice Result>
+- <Attribute Name>: <Dice Result>
 
 **IMPORTANT:** Do NOT use JSON format. Use the bullet point format shown above.`;
       } else {
@@ -1116,7 +1112,7 @@ ${context}`;
 1. After your narrative response, add a section titled "Character Sheet:"
 2. For EACH character sheet field you're updating, use this format:
    - Field Name: Value
-3. Make sure to include ALL relevant fields (Name, Class, Background, Attributes, etc.)
+3. Make sure to include ALL relevant fields for the game system in the context (which could include things such as Name, Class, Background, Attributes, etc.)
 
 **CONSISTENCY CHECK - BEFORE FINALIZING YOUR CHOICE:**
 - Review your previous choices and ensure this new choice doesn't contradict them
@@ -1130,12 +1126,8 @@ EXAMPLE OUTPUT:
 I have rolled the dice and assigned attributes based on the results.
 
 Character Sheet:
-- Strength: 16
-- Dexterity: 14
-- Constitution: 12
-- Intelligence: 10
-- Wisdom: 8
-- Charisma: 13
+- <Attribute Name>: <Dice Result>
+- <Attribute Name>: <Dice Result>
 
 **IMPORTANT:** Do NOT use JSON format. Use the bullet point format shown above.`;
       }
@@ -1208,152 +1200,6 @@ Character Sheet:
     }
     
     return validationResult;
-  }
-
-  /**
-   * Format the final character sheet for display
-   * @param {Object} validationResult - Optional validation result object with warnings
-   */
-  formatCharacterSheet(validationResult) {
-    let output = "## 🎲 Character Creation Complete!\n\n";
-    
-    // Add validation status if available
-    if (validationResult) {
-      const hasWarnings = validationResult.warnings && validationResult.warnings.length > 0;
-      if (hasWarnings || !validationResult.message.includes('validated successfully')) {
-        output += `**Validation Status:** ⚠️ ${validationResult.message}\n\n`;
-      } else {
-        output += `**Validation Status:** ✅ ${validationResult.message}\n\n`;
-      }
-      
-      // Add warnings section if present
-      if (validationResult.warnings && validationResult.warnings.length > 0) {
-        output += "### ⚠️ Validation Warnings:\n";
-        validationResult.warnings.forEach((warning, i) => {
-          output += `${i + 1}. ${warning}\n`;
-        });
-        output += "\n";
-      }
-    }
-    
-    // Build character sheet from all collected updates
-    const allUpdates = { ...this.characterSheet };
-    
-    // Also collect any updates from progress updates that might have been missed
-    for (const update of this.progressUpdates) {
-      if (update.result && update.result.characterSheetUpdates) {
-        Object.assign(allUpdates, update.result.characterSheetUpdates);
-      }
-    }
-    
-    if (Object.keys(allUpdates).length > 0) {
-      output += "### 📋 Character Sheet\n\n";
-      
-      // Group attributes by category for better organization
-      const categories = {
-        basic: ['Name', 'Class', 'Race', 'Background', 'Alignment'],
-        attributes: ['Strength', 'Dexterity', 'Constitution', 'Intelligence', 'Wisdom', 'Charisma'],
-        combat: ['Hit Points', 'Armor Class', 'Speed', 'Proficiency Bonus'],
-        skills: [],
-        other: []
-      };
-      
-      // Categorize each attribute
-      for (const [key, value] of Object.entries(allUpdates)) {
-        const lowerKey = key.toLowerCase();
-        let categorized = false;
-        
-        for (const category in categories) {
-          if (category === 'other') continue;
-          
-          const categoryKeys = categories[category];
-          if (categoryKeys.some(k => lowerKey.includes(k.toLowerCase()))) {
-            categories[category].push(key);
-            categorized = true;
-            break;
-          }
-        }
-        
-        if (!categorized) {
-          categories.other.push(key);
-        }
-      }
-      
-      // Output each category with proper formatting
-      for (const [category, keys] of Object.entries(categories)) {
-        if (keys.length === 0 || 
-            (category !== 'other' && keys.every(k => !Object.keys(allUpdates).includes(k)))) {
-          continue;
-        }
-        
-        const categoryHeaders = {
-          basic: '**Basic Information**',
-          attributes: '**Attributes**',
-          combat: '**Combat Stats**',
-          skills: '**Skills & Abilities**',
-          other: '**Other Details**'
-        };
-        
-        output += `\n${categoryHeaders[category]}\n`;
-        
-        for (const key of keys) {
-          if (allUpdates.hasOwnProperty(key)) {
-            const value = allUpdates[key];
-            // Format the value to handle multi-line content
-            const formattedValue = String(value).replace(/\n/g, ' ');
-            output += `- **${key}:** ${formattedValue}\n`;
-          }
-        }
-      }
-      
-      // Add any remaining attributes not in categories
-      const categorizedKeys = Object.values(categories).flat();
-      const uncategorized = Object.keys(allUpdates).filter(k => !categorizedKeys.includes(k));
-      
-      if (uncategorized.length > 0) {
-        output += `\n**Additional Information**\n`;
-        for (const key of uncategorized) {
-          const value = allUpdates[key];
-          const formattedValue = String(value).replace(/\n/g, ' ');
-          output += `- **${key}:** ${formattedValue}\n`;
-        }
-      }
-    } else {
-      // If still no structured data, provide a clear message
-      output += "**Character Sheet:** No structured character data was generated.\n";
-      output += "This may indicate that the LLM did not produce character sheet updates in the expected format.\n\n";
-      
-      // Add a summary of steps instead of using step details as character data
-      if (this.progressUpdates.length > 0) {
-        output += "### Steps Completed:\n";
-        this.progressUpdates.forEach((update, i) => {
-          const statusIcon = update.status === 'completed' ? '✅' : '❌';
-          let stepName = update.step;
-          
-          // Extract step name from structured result if available
-          if (update.result && update.result.stepName) {
-            stepName = update.result.stepName;
-          } else if (typeof update.details === 'string') {
-            stepName = update.details.split('\n')[0];
-          }
-          
-          output += `${i + 1}. ${statusIcon} **${stepName}**\n`;
-          if (update.details && update.details !== stepName) {
-            output += `   - ${update.details}\n`;
-          }
-        });
-      }
-      
-      // Add a note about what the character sheet should contain
-      output += "\n### Expected Character Sheet Fields:\n";
-      output += "- Name: Character's name\n";
-      output += "- Ancestry: Character's race/ancestry (e.g., Drow)\n";
-      output += "- Calling: Character's class or role\n";
-      output += "- Skills: Key skills and abilities\n";
-      output += "- Background: Brief background story elements\n";
-    }
-    
-    return output;
   }
 
   /**

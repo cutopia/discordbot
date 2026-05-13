@@ -23,7 +23,7 @@ import {
 } from './pagination.js';
 import { setRAGSource } from './chatbot.js';
 import { processDiceRoll, getDiceRollSeed } from './dice.js';
-import { generateCharacterWithProgress, formatProgressReport } from './character-generator.js';
+import { generateCharacterWithProgress } from './character-generator.js';
 import { getRAGSource } from './chatbot.js';
 
 // Log the dice RNG seed on startup (seeded random is enabled in dice.js)
@@ -528,15 +528,8 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 return;
               }
               
-              // Build response with progress report if available
+              // Use only the character sheet for successful generation
               let responseContent = result.formattedSheet;
-              
-              if (result.progressUpdates && result.progressUpdates.length > 0) {
-                const progressReport = formatProgressReport(result.progressUpdates);
-                if (progressReport) {
-                  responseContent = `${progressReport}\n\n---\n${responseContent}`;
-                }
-              }
               
               // Split the character sheet content if it exceeds Discord's limit
               const chunks = splitMessage(responseContent);
