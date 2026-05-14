@@ -581,7 +581,8 @@ export async function getContextForQuery(sourceName, query, k = 3) {
     // Format context with relevance scores for better AI understanding
     const contextParts = docs.map((doc, index) => {
       const relevanceScore = Math.round(doc.score * 100);
-      return `Context ${index + 1} (Relevance: ${relevanceScore}%):\n${doc.content}\n`;
+      const content = doc.pageContent || doc.content || '';
+      return `Context ${index + 1} (Relevance: ${relevanceScore}%):\n${content}\n`;
     });
     
     // Add metadata about the retrieval for the AI

@@ -504,7 +504,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
         
         // Process the character generation in background with progress reporting
-        generateCharacterWithProgress(specifications, ragSource)
+        generateCharacterWithProgress(specifications, ragSource, channelId)
           .then(async (result) => {
             console.log('Got character generation result, sending follow-up message...');
             
