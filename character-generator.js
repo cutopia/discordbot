@@ -9,7 +9,7 @@ const characterGenerationSessions = new Map();
  * Placeholder Resolver Class
  * Handles classification and resolution of placeholders using targeted RAG queries.
  */
-class PlaceholderResolver {
+export class PlaceholderResolver {
   constructor(ragSource, vectorStores) {
     this.ragSource = ragSource;
     this.vectorStores = vectorStores;
@@ -64,55 +64,41 @@ class PlaceholderResolver {
 
   /**
    * Get base queries for a placeholder type
+   * These are starting points - the LLM should generate additional adaptive queries
    */
   getBaseQueries(placeholderType) {
     const queries = {
       NAME: [
-        'What are the naming conventions for characters in this RPG system?',
-        'Are there cultural or regional naming patterns?',
-        'Should character names follow any specific format or style?'
+        'What naming conventions exist in this RPG system?',
+        'Are there cultural or regional naming patterns?'
       ],
       ATTRIBUTE: [
         'How are attributes created or determined in this RPG system?',
-        'What are the typical ranges for attribute values?',
-        'Are there any special rules for attribute creation?',
         'What methods can be used to determine attribute scores?'
       ],
       SKILL: [
         'What is the skill system in this RPG?',
-        'How are skills ranked or leveled up?',
-        'Are there any prerequisites for skills?',
-        'What modifiers affect skills?'
+        'How are skills ranked or leveled up?'
       ],
       ABILITY: [
-        'What abilities or special features exist in this RPG system?',
-        'How do abilities work and what are their effects?',
-        'Are there any limitations or costs associated with abilities?',
-        'How are abilities selected or acquired?'
+        'What abilities exist in this RPG system?',
+        'How do abilities work and what are their effects?'
       ],
       BACKSTORY: [
         'What background options are available for characters?',
-        'How does background affect character creation?',
-        'Are there cultural or regional backgrounds in this setting?',
-        'What motivations and personality traits should characters have?'
+        'How does background affect character creation?'
       ],
       EQUIPMENT: [
         'What equipment is available in this RPG system?',
-        'Are there starting equipment packages?',
-        'How is equipment purchased or acquired?',
-        'What are the costs and weights of common items?'
+        'Are there starting equipment packages?'
       ],
       PROFICIENCY: [
         'What is the proficiency system in this RPG?',
-        'How do characters gain proficiencies?',
-        'Are there different levels or ranks of proficiency?',
-        'What modifiers affect proficiency checks?'
+        'How do characters gain proficiencies?'
       ],
       FEATURE: [
         'What features are available to characters in this RPG?',
-        'How are features selected or acquired?',
-        'Are there any restrictions on feature selection?',
-        'How do features interact with other character elements?'
+        'How are features selected or acquired?'
       ]
     };
     
@@ -120,29 +106,132 @@ class PlaceholderResolver {
   }
 
   /**
-   * Generate targeted RAG queries for a placeholder
+   * Generate adaptive queries based on initial exploration context
+   * This allows the LLM to create its own queries from gaps it identifies
    */
-  generateQueries(placeholderType, placeholderContext = {}) {
+  generateAdaptiveQueries(placeholderType, explorationContext = {}) {
     const baseQueries = this.getBaseQueries(placeholderType);
     
-    // Add context-specific queries if available
-    if (placeholderContext && placeholderContext.fieldName) {
-      return baseQueries.map(query => 
-        query.replace('{fieldName}', placeholderContext.fieldName)
-      );
+    // If we have exploration context (from initial rulebook review), use it to generate more targeted queries
+    if (explorationContext && explorationContext.discoveredConcepts) {
+      return [
+        ...baseQueries,
+        // Generate queries based on what was discovered in the rulebook
+        ...this.generateGapBasedQueries(placeholderType, explorationContext)
+      ];
     }
     
     return baseQueries;
   }
 
   /**
+   * Generate queries that target specific gaps identified during exploration
+   */
+  generateGapBasedQueries(placeholderType, explorationContext) {
+    const gapQueries = [];
+    
+    // Analyze what concepts were discovered and create targeted follow-up questions
+    if (explorationContext.discoveredConcepts && 
+        Array.isArray(explorationContext.discoveredConcepts)) {
+      
+      for (const concept of explorationContext.discoveredConcepts) {
+        switch (placeholderType) {
+          case 'NAME':
+            gapQueries.push(
+              `How does the ${concept} concept affect character naming?`,
+              `Are there specific names or naming patterns related to ${concept}?`
+            );
+            break;
+          case 'ATTRIBUTE':
+            gapQueries.push(
+              `What is the relationship between ${concept} and attribute creation?`,
+              `How should attributes be determined when considering ${concept}?`
+            );
+            break;
+          case 'SKILL':
+            gapQueries.push(
+              `How does ${concept} affect skill selection or advancement?`,
+              `Are there skills specifically related to ${concept}?`
+            );
+            break;
+          case 'ABILITY':
+            gapQueries.push(
+              `What abilities are connected to the ${concept} concept?`,
+              `How do abilities interact with ${concept}?`
+            );
+            break;
+          case 'BACKSTORY':
+            gapQueries.push(
+              `How does the ${concept} concept influence character background options?`,
+              `Are there specific backgrounds related to ${concept}?`
+            );
+            break;
+          case 'EQUIPMENT':
+            gapQueries.push(
+              `What equipment is affected by or connected to ${concept}?`,
+              `Are there special equipment rules related to ${concept}?`
+            );
+            break;
+          case 'PROFICIENCY':
+            gapQueries.push(
+              `How does ${concept} affect proficiency selection or advancement?`,
+              `Are there proficiencies specifically related to ${concept}?`
+            );
+            break;
+          case 'FEATURE':
+            gapQueries.push(
+              `What features are connected to the ${concept} concept?`,
+              `How do features interact with ${concept}?`
+            );
+            break;
+        }
+      }
+    }
+    
+    // Add general exploration queries if we have context
+    if (explorationContext.rulebookContext) {
+      gapQueries.push(
+        `Based on the rulebook context about ${explorationContext.rulebookContext}, what specific details are needed for ${placeholderType.toLowerCase()}?`,
+        `Are there any exceptions or special cases for ${placeholderType.toLowerCase()} mentioned in the rulebook?`
+      );
+    }
+    
+    return gapQueries;
+  }
+
+  /**
+   * Generate targeted RAG queries for a placeholder
+   */
+  generateQueries(placeholderType, placeholderContext = {}, explorationContext = {}) {
+    // First get base queries (starting points)
+    const baseQueries = this.getBaseQueries(placeholderType);
+    
+    // Then add adaptive queries based on exploration context
+    const adaptiveQueries = this.generateAdaptiveQueries(placeholderType, explorationContext);
+    
+    // Combine and deduplicate queries
+    const allQueries = [...new Set([...baseQueries, ...adaptiveQueries])];
+    
+    // Add context-specific modifications if available
+    if (placeholderContext && placeholderContext.fieldName) {
+      return allQueries.map(query => 
+        query.replace('{fieldName}', placeholderContext.fieldName)
+      );
+    }
+    
+    return allQueries;
+  }
+
+
+  /**
    * Query RAG and get resolved content for a placeholder
    */
-  async resolvePlaceholder(placeholderText, placeholderContext = {}) {
+  async resolvePlaceholder(placeholderText, placeholderContext = {}, explorationContext = {}) {
     const placeholderType = this.classifyPlaceholder(placeholderText);
-    const queries = this.generateQueries(placeholderType, placeholderContext);
+    const queries = this.generateQueries(placeholderType, placeholderContext, explorationContext);
     
     console.log(`Resolving ${placeholderType} placeholder: ${placeholderText}`);
+    console.log(`Generated ${queries.length} queries for resolution`);
     
     const allResults = [];
     
@@ -169,20 +258,29 @@ class PlaceholderResolver {
       queriesUsed: queries
     };
   }
-
   /**
-   * Resolve all placeholders in a character sheet
+   * Resolve all placeholders in a batch
    */
-  async resolveAllPlaceholders(characterSheet) {
+  async resolveAllPlaceholders(placeholders, explorationContext = {}) {
     const results = [];
     
-    for (const placeholder of characterSheet.placeholders || []) {
-      const result = await this.resolvePlaceholder(placeholder.text, {
-        fieldName: placeholder.fieldName || null,
-        section: placeholder.section || null
-      });
-      
-      results.push(result);
+    for (const placeholder of placeholders) {
+      try {
+        const result = await this.resolvePlaceholder(
+          placeholder.text,
+          { fieldName: placeholder.fieldName || '' },
+          explorationContext
+        );
+        results.push(result);
+      } catch (error) {
+        console.error(`Error resolving placeholder ${placeholder.text}:`, error.message);
+        results.push({
+          original: placeholder.text,
+          resolved: 'No relevant information found in the rulebook.',
+          type: this.classifyPlaceholder(placeholder.text),
+          error: error.message
+        });
+      }
     }
     
     return results;
@@ -437,6 +535,44 @@ Output format: Markdown character sheet with all sections and placeholders.`;
   }
 
   /**
+   * Extract discovered concepts from research results for adaptive query generation
+   */
+  extractDiscoveredConcepts(researchResults) {
+    if (!researchResults) return [];
+    
+    // Try to parse as JSON first (if the LLM returned structured output)
+    try {
+      const parsed = JSON.parse(researchResults);
+      if (parsed.concepts && Array.isArray(parsed.concepts)) {
+        return parsed.concepts;
+      }
+    } catch (e) {
+      // Not JSON, continue with text parsing
+    }
+    
+    // Fallback: extract potential concepts from research results text
+    const concepts = [];
+    
+    // Look for numbered lists or bullet points that might represent key concepts
+    const lines = researchResults.split('\n');
+    for (const line of lines) {
+      // Match patterns like "1. Concept", "- Concept", "* Concept"
+      const match = line.match(/^(?:\d+[\.)]\s*[-•]?\s*|\-\s*|\*\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i);
+      if (match && match[1]) {
+        concepts.push(match[1]);
+      }
+    }
+    
+    // Also look for capitalized phrases that might be important concepts
+    const conceptMatches = researchResults.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\b/g);
+    if (conceptMatches) {
+      concepts.push(...conceptMatches.slice(0, 10)); // Take first 10 as potential concepts
+    }
+    
+    return [...new Set(concepts)].slice(0, 5); // Deduplicate and limit to top 5
+  }
+
+  /**
    * Phase 3: Iterative Refinement - Fill placeholders with rulebook values
    */
   async refineCharacter() {
@@ -462,9 +598,14 @@ Output format: Markdown character sheet with all sections and placeholders.`;
     }
     
     // Use the placeholder resolver to handle all placeholders systematically
-    const resolvedResults = await this.placeholderResolver.resolveAllPlaceholders({
-      placeholders: unresolvedPlaceholders
-    });
+    // Pass exploration context from research phase for adaptive query generation
+    const explorationContext = {
+      discoveredConcepts: this.researchResults ? 
+        this.extractDiscoveredConcepts(this.researchResults) : null,
+      rulebookContext: this.characterSheetStructure || null
+    };
+    
+    const resolvedResults = await this.placeholderResolver.resolveAllPlaceholders(unresolvedPlaceholders, explorationContext);
     
     // Update character sheet with resolved content
     let updatedSheet = this.characterSheet.rawContent;
