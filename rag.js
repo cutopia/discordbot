@@ -7,6 +7,14 @@ const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse/lib/pdf-parse.js');
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 
+// Import the summary system
+import {
+  getOrCreateFocusedSummaries,
+  formatSummaryInfo,
+  calculateTotalSummarySize,
+  SUMMARY_CACHE_DIR
+} from './rag_summarizer.js';
+
 /**
  * Load the RAG prompt template from prompt.txt
  */
@@ -385,6 +393,9 @@ const ragPromptTemplate = loadRagPromptTemplate();
 const vectorStores = new Map();
 const sourceDocuments = new Map();
 
+// Store focused summaries per source
+const focusedSummaries = new Map();
+
 /**
  * Get available PDF files from the ragsourcebooks directory
  */
@@ -404,6 +415,20 @@ export function getAvailablePDFs() {
   }
   
   return pdfFiles;
+}
+
+/**
+ * Get the focused summaries for a source
+ */
+export function getFocusedSummaries(sourceName) {
+  return focusedSummaries.get(sourceName);
+}
+
+/**
+ * Set the focused summaries for a source
+ */
+export function setFocusedSummaries(sourceName, summaries) {
+  focusedSummaries.set(sourceName, summaries);
 }
 
 /**
@@ -463,29 +488,94 @@ export async function createVectorStore(sourceName, text) {
 
 /**
  * Get or create a vector store for a specific PDF source
+ * Also generates focused summaries if not already cached
  */
-export async function getOrCreateVectorStore(pdfPath) {
+export async function getOrCreateVectorStore(pdfPath, llmEndpoint = null) {
   const sourceName = path.basename(pdfPath, '.pdf');
   
-  if (vectorStores.has(sourceName)) {
-    return vectorStores.get(sourceName);
+  // Check if we already have both the vector store and summaries
+  if (vectorStores.has(sourceName) && focusedSummaries.has(sourceName)) {
+    return { 
+      vectorStore: vectorStores.get(sourceName),
+      summaries: focusedSummaries.get(sourceName)
+    };
   }
   
   try {
     console.log(`Extracting text from ${sourceName}...`);
     const text = await extractTextFromPDF(pdfPath);
     
+    // Generate or load focused summaries
+    if (!llmEndpoint) {
+      // Use default LM Studio endpoint
+      llmEndpoint = process.env.LMSTUDIO_API_URL || 'http://localhost:1234/v1/chat/completions';
+    }
+    
+    console.log(`Generating focused summaries for ${sourceName}...`);
+    const summaries = await getOrCreateFocusedSummaries(sourceName, text, llmEndpoint);
+    
+    // Create vector store with both raw chunks and summary content
     console.log(`Creating vector store for ${sourceName}...`);
-    const vectorStore = await createVectorStore(sourceName, text);
+    const vectorStore = await createVectorStoreWithSummaries(sourceName, text, summaries);
     
     vectorStores.set(sourceName, vectorStore);
     sourceDocuments.set(sourceName, { path: pdfPath, text });
+    focusedSummaries.set(sourceName, summaries);
     
-    console.log(`Successfully created vector store for ${sourceName}`);
-    return vectorStore;
+    console.log(`Successfully created vector store and summaries for ${sourceName}`);
+    
+    return { 
+      vectorStore,
+      summaries
+    };
   } catch (error) {
     console.error(`Failed to create vector store for ${pdfPath}:`, error);
     throw error;
+  }
+}
+
+/**
+ * Create a vector store that includes both raw chunks and summary embeddings
+ */
+export async function createVectorStoreWithSummaries(sourceName, text, summaries) {
+  try {
+    // Combine all summaries into one document for better retrieval
+    const combinedSummary = Object.entries(summaries)
+      .map(([category, content]) => `## ${category}\n\n${content}`)
+      .join('\n\n');
+    
+    // Split the combined summary into chunks
+    const textSplitter = new RecursiveCharacterTextSplitter({
+      chunkSize: 384,
+      chunkOverlap: 76,
+    });
+    
+    console.log(`Splitting summaries for ${sourceName} into chunks...`);
+    const splits = await textSplitter.splitText(combinedSummary);
+    console.log(`Created ${splits.length} summary chunks from ${sourceName}`);
+    
+    // Add metadata to identify each chunk as a summary
+    const docs = splits.map(text => ({
+      pageContent: text,
+      metadata: { 
+        source: sourceName,
+        type: 'summary'
+      }
+    }));
+    
+    const embeddings = new LocalEmbeddings();
+    
+    const vectorStore = await SimpleVectorStore.fromDocuments(
+      docs,
+      embeddings
+    );
+    
+    console.log(`Successfully created summary vector store with ${vectorStore.documents.length} documents`);
+    return vectorStore;
+  } catch (error) {
+    console.error(`Error creating vector store with summaries for ${sourceName}:`, error);
+    // Fallback to regular vector store creation if summary-based fails
+    return createVectorStore(sourceName, text);
   }
 }
 
@@ -607,7 +697,8 @@ export function clearVectorStore(sourceName) {
   if (vectorStores.has(sourceName)) {
     vectorStores.delete(sourceName);
     sourceDocuments.delete(sourceName);
-    console.log(`Cleared vector store for ${sourceName}`);
+    focusedSummaries.delete(sourceName);
+    console.log(`Cleared vector store and summaries for ${sourceName}`);
   }
 }
 
@@ -617,7 +708,21 @@ export function clearVectorStore(sourceName) {
 export function clearAllVectorStores() {
   vectorStores.clear();
   sourceDocuments.clear();
-  console.log('Cleared all vector stores');
+  focusedSummaries.clear();
+  console.log('Cleared all vector stores and summaries');
+}
+
+/**
+ * Get summary information for a source (for Discord display)
+ */
+export function getSummaryInfo(sourceName) {
+  const summaries = focusedSummaries.get(sourceName);
+  
+  if (!summaries) {
+    return null;
+  }
+  
+  return formatSummaryInfo(summaries);
 }
 
 // Export the vectorStores map for direct access when needed

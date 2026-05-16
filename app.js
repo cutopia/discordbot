@@ -14,14 +14,15 @@ import { processChatMessage, clearChannelHistory } from './chatbot.js';
 import {
   getAvailablePDFs,
   getOrCreateVectorStore,
-  clearAllVectorStores
+  clearAllVectorStores,
+  getSummaryInfo
 } from './rag.js';
 import {
   sendPaginatedMessage,
   handlePaginationInteraction,
   paginationStore
 } from './pagination.js';
-import { setRAGSource } from './chatbot.js';
+import { setRAGSource, getRAGSource } from './chatbot.js';
 
 // Create an express app
 const app = express();
@@ -307,22 +308,33 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         res.send({
           type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: 'Loading document... ⏳'
+            content: 'Loading document and generating summaries... ⏳'
           }
         });
 
-        // Process the PDF in background
-        getOrCreateVectorStore(pdfPath)
-          .then(() => {
+        // Process the PDF in background (include LLM endpoint for summary generation)
+        const llmEndpoint = process.env.LMSTUDIO_API_URL || 'http://localhost:1234/v1/chat/completions';
+        
+        getOrCreateVectorStore(pdfPath, llmEndpoint)
+          .then(({ vectorStore, summaries }) => {
             const sourceName = pdfPath.split('/').pop().replace('.pdf', '');
             
             // Set this as the active RAG source for the channel
             setRAGSource(req.body.channel_id, sourceName);
             
+            // Calculate summary sizes
+            let totalSize = 0;
+            for (const summary of Object.values(summaries)) {
+              if (summary) totalSize += summary.length;
+            }
+            
+            const sizeInfo = `📊 **Summary Size**: ${totalSize.toLocaleString()} characters\n` +
+                           `📈 **Context Usage**: ${(totalSize / 200000 * 100).toFixed(1)}% of 200k limit`;
+            
             DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
               method: 'PATCH',
               body: {
-                content: `✅ Successfully loaded **${sourceName}** as RAG source! The bot can now answer questions based on this document.`,
+                content: `✅ Successfully loaded **${sourceName}** as RAG source!\n\n${sizeInfo}\n\nThe bot can now answer questions based on this document.`,
                 flags: InteractionResponseFlags.EPHEMERAL
               }
             });
@@ -346,6 +358,82 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             content: `❌ Unexpected error: ${error.message}`,
+            flags: InteractionResponseFlags.EPHEMERAL
+          }
+        });
+      }
+    }
+
+    // "rag_summary" command - show summary information for a source
+    if (name === 'rag_summary') {
+      const pdfPath = data.options?.[0]?.value || '';
+      
+      try {
+        let sourceName;
+        
+        if (pdfPath) {
+          // Use the specified path
+          sourceName = pdfPath.split('/').pop().replace('.pdf', '');
+          
+          // Ensure we have summaries for this source
+          const llmEndpoint = process.env.LMSTUDIO_API_URL || 'http://localhost:1234/v1/chat/completions';
+          await getOrCreateVectorStore(pdfPath, llmEndpoint);
+        } else {
+          // Use the active RAG source for this channel
+          sourceName = getRAGSource(req.body.channel_id);
+          
+          if (!sourceName) {
+            return res.send({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: {
+                content: 'No active RAG source. Please use /rag_source first.',
+                flags: InteractionResponseFlags.EPHEMERAL
+              }
+            });
+          }
+        }
+        
+        const summaries = getSummaryInfo(sourceName);
+        
+        if (!summaries) {
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `No summary information available for **${sourceName}**. Please load it first with /rag_source.`,
+              flags: InteractionResponseFlags.EPHEMERAL
+            }
+          });
+        }
+        
+        // Split into chunks if too long
+        const chunks = splitMessage(summaries);
+        
+        if (chunks.length > 1) {
+          // Use pagination for long summaries
+          await sendPaginatedMessage(
+            req.body.channel_id, 
+            chunks, 
+            DiscordRequest, 
+            process.env.DISCORD_APP_ID, 
+            token
+          );
+        } else {
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: summaries,
+              flags: InteractionResponseFlags.EPHEMERAL
+            }
+          });
+        }
+
+        return res.status(204).end();
+      } catch (error) {
+        console.error('Error in rag_summary command:', error);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `❌ Error getting summary information: ${error.message}`,
             flags: InteractionResponseFlags.EPHEMERAL
           }
         });

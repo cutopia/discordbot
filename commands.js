@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { InstallGlobalCommands, InstallGuildCommands } from './utils.js';
-import { getAvailablePDFs } from './rag.js';
+import { getAvailablePDFs, getSummaryInfo } from './rag.js';
 
 const availablePDFs = getAvailablePDFs();
 
@@ -34,6 +34,22 @@ const commands = [
         name: 'source',
         description: 'Which PDF document to use as knowledge base',
         required: true,
+        choices: availablePDFs.map(pdf => ({
+          name: pdf.name,
+          value: pdf.path
+        }))
+      }
+    ]
+  },
+  {
+    name: 'rag_summary',
+    description: 'Show summary information for the current RAG source',
+    options: [
+      {
+        type: 3, // STRING type
+        name: 'source',
+        description: 'Which PDF document to show summaries for (optional)',
+        required: false,
         choices: availablePDFs.map(pdf => ({
           name: pdf.name,
           value: pdf.path
