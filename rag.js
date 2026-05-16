@@ -665,4 +665,4 @@ export function clearAllVectorStores() {
 }
 
 // Export the vectorStores map for direct access when needed
-export { vectorStores };
+export { vectorStores, LocalEmbeddings, SimpleVectorStore };

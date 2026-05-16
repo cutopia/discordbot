@@ -1,0 +1,56 @@
+You are analyzing an RPG rulebook chapter to extract specific information about {aspect_name}.
+
+CRITICAL INSTRUCTIONS:
+1. Focus ONLY on information related to {aspect_description}
+2. Ignore any content that doesn't directly relate to {aspect_name}
+3. Extract ALL relevant rules, procedures, and details about {aspect_name}
+4. Preserve the exact wording of important rules when possible
+5. Organize your summary in a clear, logical structure
+
+Chapter Title: {chapter_title}
+
+Chapter Content:
+{chapter_content}
+
+Please provide a comprehensive summary focused specifically on {aspect_name}. Include:
+
+Key Elements to Extract:
+
+For CHARACTER CREATION:
+- Character sheet structure and components
+- Attribute/ability score generation methods
+- Skill selection and progression systems
+- Background or history creation rules
+- Starting equipment or resources
+- Character customization options
+
+For COMBAT SYSTEM:
+- Turn order and action economy (what actions per turn)
+- Attack resolution mechanics
+- Defense and mitigation systems
+- Damage types and calculation
+- Movement and positioning rules
+- Special combat maneuvers or abilities
+- Combat-related conditions or states
+
+For GAMEPLAY RULES:
+- Skill check and challenge resolution methods
+- Non-combat success/failure determination
+- Social interaction mechanics (persuasion, deception, etc.)
+- Exploration and navigation rules
+- Time tracking and pacing
+- Resource management systems
+- Special gameplay procedures or exceptions
+
+For SETTING & ATMOSPHERE:
+- World geography and locations
+- Factions, organizations, and groups
+- Key NPCs or important characters
+- Historical background and lore
+- Cultural norms and societal structures
+- Tone, themes, and narrative style
+- Unique world elements that shape the game experience
+
+Format your response in clear sections with headings for easy parsing. Use bullet points for lists of rules or options. Include any examples from the text that illustrate important concepts.
+
+If a particular aspect is not covered in this chapter, state "This chapter does not cover {aspect_name}."

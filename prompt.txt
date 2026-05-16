@@ -16,3 +16,21 @@ IMPORTANT: You must base your answer entirely on the CONTEXT above. Do not use g
 Question: {input}
 
 Answer based on the context above:
+
+---
+
+## RPG Rulebook Context Information
+
+The provided context may come from one of two sources:
+
+1. **Chunk-based RAG**: Raw text chunks from the PDF (original system)
+2. **Chapter Analysis RAG**: Rich summaries focused on 4 key aspects:
+   - Character creation rules and processes
+   - Combat scenario rules and procedures  
+   - Non-combat success determination & gameplay rules
+   - Setting places, people, and atmosphere
+
+When answering questions, prioritize context that matches the question's focus area. For example:
+- Character-related questions → prefer character creation summaries
+- Combat-related questions → prefer combat summaries
+- World-building questions → prefer setting & atmosphere summaries
