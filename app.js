@@ -142,20 +142,25 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 
                 console.log('Successfully sent paginated response');
               } else {
-                // Single chunk - edit original message directly
+                // Single chunk - send as follow-up message to avoid webhook token expiration
+                // This is more reliable than editing the original webhook message
                 console.log('Sending single chunk response...');
                 
-                await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
-                  method: 'PATCH',
+                DiscordRequest(`channels/${channelId}/messages`, {
+                  method: 'POST',
                   body: {
                     content: chunks[0],
                     allowed_mentions: {
                       parse: ['users', 'roles']
                     }
                   }
+                })
+                .then(() => {
+                  console.log('Successfully sent AI response message');
+                })
+                .catch(followUpError => {
+                  console.error('Failed to send follow-up message:', followUpError);
                 });
-                
-                console.log('Successfully edited message with AI response');
               }
             } catch (editError) {
               console.error('Error sending paginated message:', editError);
@@ -211,21 +216,11 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                 return;
               }
               
-              // Edit the original deferred message with the first chunk
-              await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
-                method: 'PATCH',
-                body: {
-                  content: chunks[0],
-                  allowed_mentions: {
-                    parse: ['users', 'roles']
-                  }
-                }
-              });
-              
-              // Send additional chunks as follow-up messages if needed
-              for (let i = 1; i < chunks.length; i++) {
+              // Send error as follow-up messages directly to channel
+              // This avoids webhook token expiration issues
+              for (let i = 0; i < chunks.length; i++) {
                 try {
-                  await DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages`, {
+                  DiscordRequest(`channels/${channelId}/messages`, {
                     method: 'POST',
                     body: {
                       content: chunks[i],
@@ -233,28 +228,15 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
                         parse: ['users', 'roles']
                       }
                     }
+                  })
+                  .then(() => {
+                    console.log(`Sent error message chunk ${i + 1}/${chunks.length}`);
+                  })
+                  .catch(followUpError => {
+                    console.error(`Failed to send error message chunk ${i + 1}:`, followUpError);
                   });
-                  console.log(`Sent follow-up error message chunk ${i + 1}/${chunks.length}`);
                 } catch (postError) {
-                  console.error(`Failed to send follow-up error message chunk ${i + 1}:`, postError);
-                  
-                  // If webhook fails, try channel API as fallback
-                  if (channelId && !isPermissionError) {
-                    try {
-                      await DiscordRequest(`channels/${channelId}/messages`, {
-                        method: 'POST',
-                        body: {
-                          content: chunks[i],
-                          allowed_mentions: {
-                            parse: ['users', 'roles']
-                          }
-                        }
-                      });
-                      console.log(`Sent follow-up error message chunk ${i + 1}/${chunks.length} via channel API`);
-                    } catch (channelError) {
-                      console.error(`Failed to send follow-up error message chunk ${i + 1} via channel API:`, channelError);
-                    }
-                  }
+                  console.error(`Failed to send error message chunk ${i + 1}:`, postError);
                 }
               }
             } catch (editError) {
@@ -331,19 +313,28 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
             const sizeInfo = `📊 **Summary Size**: ${totalSize.toLocaleString()} characters\n` +
                            `📈 **Context Usage**: ${(totalSize / 200000 * 100).toFixed(1)}% of 200k limit`;
             
-            DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
-              method: 'PATCH',
+            // Send follow-up message instead of editing original webhook message
+            // This avoids token expiration issues when processing takes time
+            DiscordRequest(`channels/${req.body.channel_id}/messages`, {
+              method: 'POST',
               body: {
                 content: `✅ Successfully loaded **${sourceName}** as RAG source!\n\n${sizeInfo}\n\nThe bot can now answer questions based on this document.`,
                 flags: InteractionResponseFlags.EPHEMERAL
               }
+            })
+            .then(() => {
+              console.log('Successfully sent RAG source confirmation message');
+            })
+            .catch(followUpError => {
+              console.error('Failed to send follow-up message:', followUpError);
             });
           })
           .catch(error => {
             console.error('Error loading PDF:', error);
             
-            DiscordRequest(`webhooks/${process.env.DISCORD_APP_ID}/${token}/messages/@original`, {
-              method: 'PATCH',
+            // Send follow-up error message instead of editing original webhook
+            DiscordRequest(`channels/${req.body.channel_id}/messages`, {
+              method: 'POST',
               body: {
                 content: `❌ Error loading PDF: ${error.message}`,
                 flags: InteractionResponseFlags.EPHEMERAL

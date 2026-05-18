@@ -23,6 +23,67 @@ async function mockLLMEndpoint(prompt) {
 }
 
 /**
+ * Mock LM Studio chat completions endpoint that returns sample responses for testing
+ */
+async function mockLMStudioEndpoint(prompt) {
+  // This simulates the chat completions format used by LM Studio
+  const response = await mockLLMEndpoint(prompt);
+  
+  return {
+    choices: [
+      { message: { content: response } }
+    ]
+  };
+}
+
+/**
+ * Test with actual LM Studio endpoint (if available)
+ */
+async function testWithLMStudio() {
+  console.log('\n=== Testing with LM Studio ===\n');
+  
+  const sampleText = `
+Chapter 1: Character Creation
+Players create characters by choosing a race, class, and background. 
+Each character starts with 3 ability scores that can be assigned freely.
+Characters begin with basic equipment and 50 gold pieces.
+
+Chapter 2: Combat Rules
+Combat uses a turn-based system where initiative is rolled at the start.
+Each turn allows one action and one movement.
+Attacks are resolved by rolling a d20 and adding modifiers.
+`;
+  
+  const chapters = extractChapters(sampleText);
+  
+  if (chapters.length === 0) {
+    console.log('No chapters found in sample text');
+    return;
+  }
+  
+  // Test with LM Studio endpoint from environment
+  const llmEndpoint = process.env.LM_STUDIO_API_URL || 'http://localhost:1234/v1/chat/completions';
+  
+  try {
+    console.log(`Testing with endpoint: ${llmEndpoint}`);
+    
+    for (const chapter of chapters) {
+      console.log(`\nProcessing chapter: "${chapter.title}"`);
+      
+      const summary = await generateFocusedSummary(chapter.content, 'characterCreation', llmEndpoint);
+      console.log(`  Summary (${summary.length} chars): ${summary.substring(0, 150)}...`);
+    }
+  } catch (error) {
+    console.error('Error testing with LM Studio:', error.message);
+    console.log('\nNote: LM Studio may not be running or configured. Using mock endpoint instead.');
+    
+    // Fallback to mock for testing
+    const summary = await generateFocusedSummary(chapters[0].content, 'characterCreation', mockLLMEndpoint);
+    console.log(`\nMock test result (${summary.length} chars): ${summary}`);
+  }
+}
+
+/**
  * Test the summary system with a sample text
  */
 async function testSummarySystem() {
@@ -157,5 +218,16 @@ async function generateAllSummaries(text, llmEndpoint) {
   return summaries;
 }
 
-// Run the test
-testSummarySystem().catch(console.error);
+// Run all tests
+async function runAllTests() {
+  try {
+    await testSummarySystem();
+    
+    // Test with LM Studio if available
+    await testWithLMStudio();
+  } catch (error) {
+    console.error('Test error:', error);
+  }
+}
+
+runAllTests().catch(console.error);

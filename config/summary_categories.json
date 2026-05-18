@@ -1,0 +1,22 @@
+{
+  "threshold": 40,
+  "categories": [
+    {
+      "name": "characterCreation",
+      "filename": "Character_Creation"
+    },
+    {
+      "name": "combatRules", 
+      "filename": "Combat_Rules"
+    },
+    {
+      "name": "nonCombatRules",
+      "filename": "Non_Combat_Gameplay"
+    },
+    {
+      "name": "settingAtmosphere",
+      "filename": "Setting_Atmosphere"
+    }
+  ],
+  "outputDirectory": "./rag_summaries/categories"
+}
